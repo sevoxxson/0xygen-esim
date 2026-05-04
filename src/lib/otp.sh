@@ -217,6 +217,7 @@ _otp_extract() {
     # Strip MIME boundaries / decode quoted-printable enough for ASCII OTPs.
     text=$(printf '%s' "$raw" \
         | tr -d '\r' \
+        | awk 'body { print } /^$/ { body=1 }' \
         | sed -e 's/=3D/=/g' -e 's/=20/ /g' -e 's/=2E/./g')
 
     code=$(printf '%s' "$text" | awk '

@@ -254,16 +254,23 @@ _captcha_nextcaptcha() {
     while [ "$elapsed" -lt "$HYFE_CAPTCHA_TIMEOUT" ]; do
         sleep 5
         elapsed=$((elapsed + 5))
-        # NextCaptcha returns a string UUID `taskId` (e.g.
-        # 01914985-e066-7080-9cf4-730aa55e0292), so we must use --arg (which
-        # quotes the value) rather than --argjson (which would try to parse
-        # the UUID as raw JSON and fail).
+        case "$task_id" in
+            *[!0-9]*)
+                poll_body=$(jq -nc \
+                    --arg key "$HYFE_CAPTCHA_KEY" \
+                    --arg tid "$task_id" \
+                    '{clientKey:$key, taskId:$tid}')
+                ;;
+            *)
+                poll_body=$(jq -nc \
+                    --arg key "$HYFE_CAPTCHA_KEY" \
+                    --argjson tid "$task_id" \
+                    '{clientKey:$key, taskId:$tid}')
+                ;;
+        esac
         poll=$(curl -s --max-time 15 \
             -H 'Content-Type: application/json' \
-            --data "$(jq -nc \
-                --arg key "$HYFE_CAPTCHA_KEY" \
-                --arg tid "$task_id" \
-                '{clientKey:$key, taskId:$tid}')" \
+            --data "$poll_body" \
             "https://api.nextcaptcha.com/getTaskResult")
         status=$(printf '%s' "$poll" | jq -r '.status // empty')
         case "$status" in
