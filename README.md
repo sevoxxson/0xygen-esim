@@ -39,18 +39,43 @@ Mengotomatiskan flow web di
 hyfetrial
 ```
 
-Tanpa flag apapun, CLI akan tanya satu per satu:
+Tanpa flag apapun, CLI akan tanya satu per satu. Untuk Nama dan
+Nomor WhatsApp, hyfetrial menawarkan pilihan **1) random** atau
+**2) ketik manual** (Enter = pilihan 1):
 
 ```
 === hyfetrial: mode interaktif ===
-Nama lengkap: Andi Pratama
+Nama lengkap
+  1) random
+  2) ketik manual
+Pilih [1]:
+[hyfetrial] nama random: Andi Pratama
+Nomor WhatsApp
+  1) random
+  2) ketik manual
+Pilih [1]: 2
 Nomor WhatsApp (tanpa +62/0): 81234567890
 Email (yang akan menerima OTP): saya@gmail.com
+
+EID HARUS dari device yang akan dipakai untuk eSIM ini.
+  - Cek di iPhone:  Settings > General > About > EID
+  - Cek di Android: Settings > About phone > SIM status > EID
+  - Random/EID milik device lain = QR eSIM tidak bisa diaktifkan.
+
 EID eSIM (32 digit): 12345678901234567890123456789012
 Pola digit nomor cantik (kosongkan untuk random): 8888
 Mode captcha: manual / 2captcha / anticaptcha / capsolver / nextcaptcha [manual]:
 Mode OTP: manual / imap [manual]:
 ```
+
+**Catatan EID**: tidak ada opsi random untuk EID. EID adalah identitas
+unik device — QR eSIM yang terbit hanya bisa diaktifkan di HP yang
+EID-nya dimasukkan saat klaim. Memakai EID milik device lain berarti
+hasilnya tidak bisa diaktifkan.
+
+**Catatan WhatsApp random**: nomor random tidak akan menerima
+notifikasi/OTP WA. Pakai ini hanya kalau Anda yakin pipeline klaim
+tidak butuh konfirmasi via WhatsApp.
 
 Atau lewat flag (non-interaktif, bagus untuk script):
 

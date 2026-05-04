@@ -149,3 +149,50 @@ cookie_get() {
 trim() {
     printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 }
+
+# Print a positive integer in [1..max] using /dev/urandom when available.
+# Falls back to date(1) so it still works on minimal busybox environments.
+random_int() {
+    _max="$1"
+    _max=${_max:-1}
+    [ "$_max" -gt 0 ] 2>/dev/null || _max=1
+    if [ -r /dev/urandom ] && command -v od >/dev/null 2>&1; then
+        _n=$(od -An -N4 -tu4 /dev/urandom 2>/dev/null | tr -d ' ')
+    else
+        _n=""
+    fi
+    [ -n "$_n" ] || _n=$(date +%s 2>/dev/null)
+    [ -n "$_n" ] || _n=1
+    echo $(( (_n % _max) + 1 ))
+}
+
+# Random Indonesian-style two-word name (e.g. "Andi Pratama").
+# Used by the interactive prompt when the user picks "random".
+random_indo_name() {
+    _firsts="Andi Budi Citra Dewi Eka Fajar Gita Hadi Ika Joko Kiki Lina Mira Nina Oki Putri Rizki Sari Tono Umar Vina Wahyu Yuli Zaki Adi Bayu Cahya Dian Endah Faisal Galih Hana Indah Jaya Krisna Lukman Maya Nadia Ovi Purnama Reza Rama Sinta Tirta"
+    _lasts="Pratama Saputra Wijaya Hartono Santoso Permata Anggraini Lestari Susanti Utami Kusuma Wibowo Setiawan Nugroho Hidayat Maulana Firmansyah Ramadhan Pangestu Anggara Cahyono Darmawan Kurnia Mahendra Pradipta Aditya Iskandar Sudirman"
+    _f_count=$(printf '%s' "$_firsts" | awk '{print NF}')
+    _l_count=$(printf '%s' "$_lasts"  | awk '{print NF}')
+    _r1=$(random_int "$_f_count")
+    _r2=$(random_int "$_l_count")
+    _f=$(printf '%s' "$_firsts" | awk -v i="$_r1" '{print $i}')
+    _l=$(printf '%s' "$_lasts"  | awk -v i="$_r2" '{print $i}')
+    printf '%s %s' "$_f" "$_l"
+}
+
+# Random Indonesian mobile MSISDN local part (without leading 0 / +62).
+# Format: starts with "8", total 11 digits (matches the "08XXXXXXXXX" pattern
+# accepted by the upstream form). The CLI strips leading 0/+62 and validates
+# 8..12 digits, so 11 digits including the leading "8" is always in range.
+random_wa_local() {
+    _len=11
+    _out="8"
+    _i=1
+    while [ "$_i" -lt "$_len" ]; do
+        _r=$(random_int 10)
+        _d=$((_r - 1))
+        _out="${_out}${_d}"
+        _i=$((_i + 1))
+    done
+    printf '%s' "$_out"
+}
