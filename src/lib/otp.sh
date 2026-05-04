@@ -83,6 +83,7 @@ _otp_imap() {
                     printf '%s' "$code"
                     return 0
                 fi
+                log_verbose "imap: uid=$uid fetched but OTP token not matched"
             fi
         fi
         sleep 5
@@ -92,8 +93,10 @@ _otp_imap() {
     return 1
 }
 
-# Extract a HYFE OTP from raw RFC822 message text. We try the most specific
-# patterns first (label "OTP" / "kode" / "code" near the token), then fall
+# Extract a HYFE OTP from raw RFC822 message text. Keep this parser portable:
+# BusyBox grep on OpenWrt is much pickier than GNU grep, so avoid regex tokens
+# like \b and case-folded negated classes that behave differently across impls.
+# We prefer candidates that appear shortly after OTP-related keywords, then fall
 # back to any standalone 6-char uppercase/digit token.
 _otp_extract() {
     raw="$1"
@@ -102,18 +105,40 @@ _otp_extract() {
         | tr -d '\r' \
         | sed -e 's/=3D/=/g' -e 's/=20/ /g' -e 's/=2E/./g')
 
-    # Pattern 1: token adjacent to "OTP" / "kode" / "code"
-    code=$(printf '%s' "$text" | grep -oE -i '(otp|kode|code)[^A-Z0-9]{0,40}[A-Z0-9]{6}' \
-        | head -n1 | grep -oE '[A-Z0-9]{6}' | head -n1)
-    [ -n "$code" ] && { printf '%s' "$code"; return 0; }
-
-    # Pattern 2: token after a colon, common in current HYFE email template
-    code=$(printf '%s' "$text" | grep -oE ':[[:space:]]*[A-Z0-9]{6}\b' \
-        | head -n1 | grep -oE '[A-Z0-9]{6}' | head -n1)
-    [ -n "$code" ] && { printf '%s' "$code"; return 0; }
-
-    # Pattern 3: any standalone 6-char uppercase/digit token
-    code=$(printf '%s' "$text" | grep -oE '\b[A-Z0-9]{6}\b' | head -n1)
+    code=$(printf '%s' "$text" | awk '
+        function clean(tok) {
+            gsub(/^[^[:alnum:]]+/, "", tok)
+            gsub(/[^[:alnum:]]+$/, "", tok)
+            return tok
+        }
+        function is_candidate(tok) {
+            if (length(tok) != 6) return 0
+            if (tok !~ /^[[:alnum:]]+$/) return 0
+            if (tok ~ /[0-9]/) return 1
+            return tok == toupper(tok)
+        }
+        {
+            for (i = 1; i <= NF; i++) {
+                key = toupper(clean($i))
+                if (key == "OTP" || key == "KODE" || key == "CODE") {
+                    for (j = i + 1; j <= NF && j <= i + 12; j++) {
+                        tok = clean($j)
+                        if (is_candidate(tok)) {
+                            print tok
+                            exit
+                        }
+                    }
+                }
+            }
+            for (i = 1; i <= NF; i++) {
+                tok = clean($i)
+                if (is_candidate(tok)) {
+                    print tok
+                    exit
+                }
+            }
+        }
+    ')
     [ -n "$code" ] && { printf '%s' "$code"; return 0; }
 
     return 1
