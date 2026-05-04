@@ -92,8 +92,10 @@ jobs:
         run: |
           mkdir -p dist
           # SNAPSHOT SDKs produce .apk; some still produce .ipk during the
-          # transition - keep both if present.
-          find . -name 'hyfetrial-*.apk' -o -name 'hyfetrial_*_all.ipk' \
+          # transition - keep both if present. The grouping parens are
+          # required: without them `-exec` only binds to the second `-name`
+          # and `.apk` files would be silently skipped.
+          find . \( -name 'hyfetrial-*.apk' -o -name 'hyfetrial_*_all.ipk' \) \
               -exec cp -v {} dist/ \;
           ls -la dist/
 
