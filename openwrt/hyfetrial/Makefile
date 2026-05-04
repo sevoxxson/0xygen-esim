@@ -19,7 +19,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=hyfetrial
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=11
+PKG_RELEASE:=12
 PKG_MAINTAINER:=0xwuwa999 <0xwuwa999@gmail.com>
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=LICENSE
@@ -70,6 +70,7 @@ define Package/hyfetrial/install
 	$(INSTALL_DATA) $(HYFETRIAL_SRC)/src/lib/api.sh     $(1)/usr/lib/hyfetrial/api.sh
 	$(INSTALL_DATA) $(HYFETRIAL_SRC)/src/lib/captcha.sh $(1)/usr/lib/hyfetrial/captcha.sh
 	$(INSTALL_DATA) $(HYFETRIAL_SRC)/src/lib/otp.sh     $(1)/usr/lib/hyfetrial/otp.sh
+	$(INSTALL_DATA) $(HYFETRIAL_SRC)/src/lib/config.sh  $(1)/usr/lib/hyfetrial/config.sh
 
 	$(INSTALL_DIR) $(1)/etc/hyfetrial
 	$(INSTALL_CONF) $(HYFETRIAL_SRC)/etc/config.example $(1)/etc/hyfetrial/config.example
