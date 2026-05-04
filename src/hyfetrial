@@ -379,6 +379,33 @@ pick_msisdn() {
     log_info "selected MSISDN: $SELECTED_MSISDN"
 }
 
+# _prompt_choice VARNAME "Label"
+# Ask the user to pick mode 1 (random) or 2 (manual).
+# Pressing Enter accepts the default (1=random). The result is assigned to
+# VARNAME with the literal string "random" or "manual". Returns rc=130 with
+# a clear message on EOF instead of silently exiting under `set -eu`.
+_prompt_choice() {
+    _vname="$1"; _label="$2"
+    while :; do
+        {
+            printf '%s\n' "$_label"
+            printf '  1) random\n'
+            printf '  2) ketik manual\n'
+            printf 'Pilih [1]: '
+        } >&2
+        if ! IFS= read -r _ans; then
+            printf '\nhyfetrial: input dibatalkan (EOF)\n' >&2
+            exit 130
+        fi
+        [ -z "$_ans" ] && _ans=1
+        case "$_ans" in
+            1|random|r|R)  eval "$_vname=random";  return 0 ;;
+            2|manual|m|M)  eval "$_vname=manual";  return 0 ;;
+            *) printf '  (pilihan tidak valid; ketik 1 atau 2)\n' >&2 ;;
+        esac
+    done
+}
+
 _prompt() {
     # _prompt VARNAME "Question text" "default" [hidden=0|1] [allow_empty=0|1]
     #
@@ -480,10 +507,38 @@ interactive_prompt() {
         printf '\n=== hyfetrial: mode interaktif ===\n'
         printf '(tekan Enter untuk pakai nilai default kalau ada)\n\n'
     } >&2
-    [ -z "$NAME" ]     && _prompt NAME     "Nama lengkap"
-    [ -z "$WHATSAPP" ] && _prompt WHATSAPP "Nomor WhatsApp (tanpa +62/0)"
+    # _name_mode / _wa_mode are populated by _prompt_choice via `eval`; declare
+    # them up-front so shellcheck (SC2154) recognises them as locally assigned.
+    _name_mode=""
+    _wa_mode=""
+    if [ -z "$NAME" ]; then
+        _prompt_choice _name_mode "Nama lengkap"
+        if [ "$_name_mode" = "random" ]; then
+            NAME=$(random_indo_name)
+            log_info "nama random: $NAME"
+        else
+            _prompt NAME "Nama lengkap"
+        fi
+    fi
+    if [ -z "$WHATSAPP" ]; then
+        _prompt_choice _wa_mode "Nomor WhatsApp"
+        if [ "$_wa_mode" = "random" ]; then
+            WHATSAPP=$(random_wa_local)
+            log_warn "WA random: 0$WHATSAPP - nomor ini tidak akan menerima pesan/OTP WA"
+        else
+            _prompt WHATSAPP "Nomor WhatsApp (tanpa +62/0)"
+        fi
+    fi
     [ -z "$EMAIL" ]    && _prompt EMAIL    "Email (yang akan menerima OTP)"
-    [ -z "$EID" ]      && _prompt EID      "EID eSIM (32 digit)"
+    if [ -z "$EID" ]; then
+        {
+            printf '\nEID HARUS dari device yang akan dipakai untuk eSIM ini.\n'
+            printf '  - Cek di iPhone:  Settings > General > About > EID\n'
+            printf '  - Cek di Android: Settings > About phone > SIM status > EID\n'
+            printf '  - Random/EID milik device lain = QR eSIM tidak bisa diaktifkan.\n\n'
+        } >&2
+        _prompt EID "EID eSIM (32 digit)"
+    fi
     if [ -z "$PATTERN" ] && [ -z "$PICK_MSISDN" ]; then
         _prompt PATTERN "Pola digit nomor cantik (kosongkan untuk random)" "" 0 1
     fi
