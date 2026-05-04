@@ -60,6 +60,16 @@ _otp_imap_common_prep() {
     [ -n "${HYFE_IMAP_URL:-}" ]  || { log_error "imap: HYFE_IMAP_URL required"; return 1; }
     [ -n "${HYFE_IMAP_USER:-}" ] || { log_error "imap: HYFE_IMAP_USER required"; return 1; }
     [ -n "${HYFE_IMAP_PASS:-}" ] || { log_error "imap: HYFE_IMAP_PASS required"; return 1; }
+    imap_proto=${HYFE_IMAP_URL%%://*}
+    case "$imap_proto" in
+        imap|imaps) ;;
+        *) log_error "imap: HYFE_IMAP_URL must start with imap:// or imaps://"; return 1 ;;
+    esac
+    curl_protocols=$(curl -V 2>/dev/null | awk '/^Protocols:/{sub(/^Protocols:[[:space:]]*/, ""); print}')
+    case " $curl_protocols " in
+        *" $imap_proto "*) ;;
+        *) log_error "imap: installed curl does not support $imap_proto (OpenWrt: build curl/libcurl with CONFIG_LIBCURL_IMAP=y)"; return 1 ;;
+    esac
 
     base="$HYFE_IMAP_URL"
     folder=$(printf '%s' "$HYFE_IMAP_FOLDER" | sed 's/ /%20/g')
