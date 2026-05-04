@@ -247,7 +247,6 @@ if [ -n "$CONFIG_FILE" ]; then
     rm -f /tmp/hyfetrial-cfg-err.$$
     unset _cfg_rc
 fi
-unset _found_cfg_flag _arg
 
 # Parse args (POSIX manual loop)
 while [ $# -gt 0 ]; do
@@ -308,6 +307,34 @@ export HYFE_VERBOSE HYFE_DEBUG \
     HYFE_OTP_MODE HYFE_IMAP_URL HYFE_IMAP_USER HYFE_IMAP_PASS \
     HYFE_IMAP_FOLDER HYFE_IMAP_SUBJECT HYFE_IMAP_TIMEOUT \
     HYFE_UA HYFE_BASE HYFE_AUTH_URL
+
+# ---------- subcommand dispatch ----------
+# Config-management subcommands only need shell builtins + awk + sed; no
+# curl/jq required. Run them BEFORE require_cmd so the user can configure
+# the tool even on a freshly installed box where deps aren't ready yet.
+if [ "$SHOW_CONFIG" = 1 ]; then
+    _path="${CONFIG_FILE:-$(config_default_path)}"
+    if [ ! -f "$_path" ]; then
+        printf 'hyfetrial: config %s tidak ada. Buat dengan: hyfetrial --new-config\n' "$_path" >&2
+        exit 2
+    fi
+    config_show "$_path"
+    exit 0
+fi
+
+if [ -n "$WIZARD_MODE" ]; then
+    if [ ! -t 0 ]; then
+        die "wizard config butuh terminal (stdin bukan TTY)"
+    fi
+    _path="${CONFIG_FILE:-$(config_default_path)}"
+    case "$WIZARD_MODE" in
+        new)     wizard_new_config "$_path" ;;
+        captcha) wizard_captcha_config "$_path" ;;
+        imap)    wizard_imap_config "$_path" ;;
+        email)   wizard_email_config "$_path" ;;
+    esac
+    exit 0
+fi
 
 require_cmd curl jq
 
@@ -499,6 +526,10 @@ _prompt_email() {
         esac
         if [ "$_ans" -ge 1 ] && [ "$_ans" -le "$_ec" ]; then
             eval "EMAIL=\$HYFE_EMAIL_$_ans"
+            # IMAP login = email address; pair the matching App Password
+            # so the IMAP polling step can run unattended.
+            HYFE_IMAP_USER="$EMAIL"
+            export HYFE_IMAP_USER
             eval "_pass_val=\${HYFE_IMAP_PASS_$_ans:-}"
             if [ -n "$_pass_val" ]; then
                 HYFE_IMAP_PASS="$_pass_val"
@@ -784,33 +815,6 @@ claim_flow() {
     printf '%s\n' "$resp" | jq . >&2 2>/dev/null || printf '%s\n' "$resp" >&2
     return 1
 }
-
-# ---------- subcommand dispatch ----------
-# These flags short-circuit the normal claim flow so the user can manage
-# their config file without going through the full eSIM submit pipeline.
-if [ "$SHOW_CONFIG" = 1 ]; then
-    _path="${CONFIG_FILE:-$(config_default_path)}"
-    if [ ! -f "$_path" ]; then
-        printf 'hyfetrial: config %s tidak ada. Buat dengan: hyfetrial --new-config\n' "$_path" >&2
-        exit 2
-    fi
-    config_show "$_path"
-    exit 0
-fi
-
-if [ -n "$WIZARD_MODE" ]; then
-    if [ ! -t 0 ]; then
-        die "wizard config butuh terminal (stdin bukan TTY)"
-    fi
-    _path="${CONFIG_FILE:-$(config_default_path)}"
-    case "$WIZARD_MODE" in
-        new)     wizard_new_config "$_path" ;;
-        captcha) wizard_captcha_config "$_path" ;;
-        imap)    wizard_imap_config "$_path" ;;
-        email)   wizard_email_config "$_path" ;;
-    esac
-    exit 0
-fi
 
 if [ "$LIST_ONLY" = 1 ]; then
     list_numbers_mode
