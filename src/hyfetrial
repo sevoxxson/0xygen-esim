@@ -32,6 +32,8 @@ fi
 
 # shellcheck source=src/lib/common.sh
 . "$LIB_DIR/common.sh"
+# shellcheck source=src/lib/config.sh
+. "$LIB_DIR/config.sh"
 # shellcheck source=src/lib/api.sh
 . "$LIB_DIR/api.sh"
 # shellcheck source=src/lib/captcha.sh
@@ -51,7 +53,16 @@ USAGE:
     hyfetrial [OPTIONS]             (mode non-interaktif via flag)
     hyfetrial --list-numbers [--pattern PAT]
 
-Kalau dijalankan tanpa flag wajib (--name/--whatsapp/--email/--eid),
+CONFIG MANAGEMENT:
+    hyfetrial --config              Lihat config aktif (password ter-mask)
+    hyfetrial --config FILE         Pakai FILE sebagai config
+    hyfetrial --new-config          Wizard setup config dari nol / partial edit
+    hyfetrial --captcha-config      Wizard khusus mode + API key captcha
+    hyfetrial --imap-config         Wizard khusus setting IMAP
+    hyfetrial --email-config        Wizard tambah/hapus akun email + App Password
+
+Tanpa --config FILE, hyfetrial otomatis source /etc/hyfetrial/config kalau
+ada. Kalau dijalankan tanpa flag wajib (--name/--whatsapp/--email/--eid),
 hyfetrial otomatis masuk mode interaktif dan menanyakan setiap input.
 
 REQUIRED OPTIONS (untuk full claim flow / non-interaktif):
@@ -86,8 +97,19 @@ OTP:
     --imap-timeout SEC     default: 180
 
 MISC:
-    --config FILE          Source FILE before parsing other options.
-                           CLI flags always override values set in FILE.
+    --config [FILE]        With FILE: source FILE before parsing other
+                           options. Without FILE: print active config
+                           with passwords masked. CLI flags always
+                           override values set in FILE.
+    --show-config          Alias for --config without an argument.
+    --new-config           Run setup wizard for the active config file.
+                           Existing values shown as defaults; press Enter
+                           to keep them. Creates /etc/hyfetrial/config
+                           if it does not exist.
+    --captcha-config       Wizard khusus update mode + API key captcha.
+    --imap-config          Wizard khusus update setting IMAP.
+    --email-config         Wizard tambah/hapus akun email + App Password
+                           (HYFE_EMAIL_N + HYFE_IMAP_PASS_N).
     -i, --interactive      Force interactive prompts even when flags are
                            given (akan menanyakan input yang masih kosong).
     --user-agent STRING    Override User-Agent
@@ -131,22 +153,59 @@ DRY_RUN=0
 ASSUME_YES=0
 INTERACTIVE=0
 CONFIG_FILE=""
+SHOW_CONFIG=0
+WIZARD_MODE=""
 
 # Pre-scan args for --config so we can source the config BEFORE the main parse
 # loop. That way subsequent CLI flags reliably override config-file values
 # (which is the documented "CLI wins" precedence).
 #
+# `--config` is dual-purpose:
+#   --config FILE   -> use FILE as config path
+#   --config        -> (no path) print current config (with passwords masked)
+# We disambiguate by peeking at the next argument: if it's missing or starts
+# with `-`, treat it as no-path "show" mode.
+#
 # `for _arg do` (without `in ...`) iterates over the positional parameters
 # directly, preserving values containing whitespace. Using `for _arg in $*`
 # would re-split on $IFS and fragment paths like `--config "/etc/has space".
-_found_cfg_flag=0
+_pending_cfg=0
 for _arg do
-    if [ "$_found_cfg_flag" = 1 ]; then
-        CONFIG_FILE="$_arg"
-        break
+    if [ "$_pending_cfg" = 1 ]; then
+        case "$_arg" in
+            -*)
+                # next arg is another flag -> --config was the no-arg form
+                SHOW_CONFIG=1
+                ;;
+            *)
+                CONFIG_FILE="$_arg"
+                ;;
+        esac
+        _pending_cfg=0
+        continue
     fi
-    [ "$_arg" = "--config" ] && _found_cfg_flag=1
+    case "$_arg" in
+        --config)         _pending_cfg=1 ;;
+        --show-config)    SHOW_CONFIG=1 ;;
+        --new-config)     WIZARD_MODE="new" ;;
+        --captcha-config) WIZARD_MODE="captcha" ;;
+        --imap-config)    WIZARD_MODE="imap" ;;
+        --email-config)   WIZARD_MODE="email" ;;
+    esac
 done
+# `--config` was the very last arg with nothing after it.
+if [ "$_pending_cfg" = 1 ]; then
+    SHOW_CONFIG=1
+fi
+unset _pending_cfg _arg
+
+# Auto-discover default config if --config was not given explicitly. This
+# is the same behaviour as `hyfetrial --config /etc/hyfetrial/config` when
+# that file exists, so users don't have to pass --config every time.
+if [ -z "$CONFIG_FILE" ] && [ -r "$(config_default_path)" ]; then
+    CONFIG_FILE=$(config_default_path)
+fi
+
 if [ -n "$CONFIG_FILE" ]; then
     [ -r "$CONFIG_FILE" ] || { printf 'hyfetrial: config not readable: %s\n' "$CONFIG_FILE" >&2; exit 2; }
     # Source the config in a way that does NOT silently kill the whole CLI
@@ -188,7 +247,6 @@ if [ -n "$CONFIG_FILE" ]; then
     rm -f /tmp/hyfetrial-cfg-err.$$
     unset _cfg_rc
 fi
-unset _found_cfg_flag _arg
 
 # Parse args (POSIX manual loop)
 while [ $# -gt 0 ]; do
@@ -212,7 +270,19 @@ while [ $# -gt 0 ]; do
         --imap-subject)     HYFE_IMAP_SUBJECT="$2"; shift 2 ;;
         --imap-timeout)     HYFE_IMAP_TIMEOUT="$2"; shift 2 ;;
         --user-agent)       HYFE_UA="$2"; shift 2 ;;
-        --config)           CONFIG_FILE="$2"; shift 2 ;;
+        --config)
+            # --config FILE or --config (no arg, see pre-scan).
+            if [ $# -ge 2 ] && [ "${2#-}" = "$2" ]; then
+                CONFIG_FILE="$2"; shift 2
+            else
+                SHOW_CONFIG=1; shift
+            fi
+            ;;
+        --show-config)      SHOW_CONFIG=1; shift ;;
+        --new-config)       WIZARD_MODE="new"; shift ;;
+        --captcha-config)   WIZARD_MODE="captcha"; shift ;;
+        --imap-config)      WIZARD_MODE="imap"; shift ;;
+        --email-config)     WIZARD_MODE="email"; shift ;;
         -i|--interactive)   INTERACTIVE=1; shift ;;
         --dry-run)          DRY_RUN=1; shift ;;
         --yes|-y)           ASSUME_YES=1; shift ;;
@@ -238,13 +308,9 @@ export HYFE_VERBOSE HYFE_DEBUG \
     HYFE_IMAP_FOLDER HYFE_IMAP_SUBJECT HYFE_IMAP_TIMEOUT \
     HYFE_UA HYFE_BASE HYFE_AUTH_URL
 
-require_cmd curl jq
-
-# Cookie jar: per-invocation tmp file.
-HYFE_COOKIES="${HYFE_COOKIES:-${TMPDIR:-/tmp}/hyfetrial-cookies.$$}"
-export HYFE_COOKIES
-trap 'rm -f "$HYFE_COOKIES"' EXIT INT TERM
-: > "$HYFE_COOKIES"
+# Cookie jar setup is deferred until after the subcommand dispatch at the
+# bottom of the file: config-management subcommands don't need curl, jq,
+# or a cookie jar.
 
 # ---------- input validation ----------
 
@@ -384,6 +450,76 @@ pick_msisdn() {
 # Pressing Enter accepts the default (1=random). The result is assigned to
 # VARNAME with the literal string "random" or "manual". Returns rc=130 with
 # a clear message on EOF instead of silently exiting under `set -eu`.
+# _prompt_email - render a numbered menu of HYFE_EMAIL_N accounts loaded from
+# the config (if any), plus a "ketik manual" entry. When the user picks an
+# account that has a matching HYFE_IMAP_PASS_N, that password is also
+# loaded into HYFE_IMAP_PASS so the IMAP polling step can run unattended.
+_prompt_email() {
+    # Discover how many email slots are configured.
+    _ec=0
+    _i=1
+    while :; do
+        eval "_v=\${HYFE_EMAIL_$_i:-}"
+        [ -n "$_v" ] || break
+        _ec=$_i
+        _i=$((_i + 1))
+    done
+    if [ "$_ec" = 0 ]; then
+        _prompt EMAIL "Email (yang akan menerima OTP)"
+        return 0
+    fi
+    while :; do
+        {
+            printf 'Email:\n'
+            _i=1
+            while [ "$_i" -le "$_ec" ]; do
+                eval "_label=\$HYFE_EMAIL_$_i"
+                printf '  %d) %s\n' "$_i" "$_label"
+                _i=$((_i + 1))
+            done
+            _manual_idx=$((_ec + 1))
+            printf '  %d) ketik manual\n' "$_manual_idx"
+            printf 'Pilih [1]: '
+        } >&2
+        if ! IFS= read -r _ans; then
+            printf '\nhyfetrial: input dibatalkan (EOF)\n' >&2
+            exit 130
+        fi
+        [ -z "$_ans" ] && _ans=1
+        case "$_ans" in
+            ''|*[!0-9]*)
+                printf '  pilihan tidak valid\n' >&2
+                continue
+                ;;
+        esac
+        if [ "$_ans" -ge 1 ] && [ "$_ans" -le "$_ec" ]; then
+            eval "EMAIL=\$HYFE_EMAIL_$_ans"
+            # IMAP login = email address; pair the matching App Password
+            # so the IMAP polling step can run unattended.
+            HYFE_IMAP_USER="$EMAIL"
+            export HYFE_IMAP_USER
+            eval "_pass_val=\${HYFE_IMAP_PASS_$_ans:-}"
+            if [ -n "$_pass_val" ]; then
+                HYFE_IMAP_PASS="$_pass_val"
+                export HYFE_IMAP_PASS
+                log_verbose "imap: password loaded from HYFE_IMAP_PASS_$_ans"
+            else
+                # Slot exists but App Password is missing. Don't fail here
+                # because OTP_MODE might be `manual`, but if the user later
+                # switches to imap they'll get a confusing error. Warn now.
+                log_warn "HYFE_IMAP_PASS_$_ans belum di-set untuk $EMAIL"
+                log_warn "kalau pakai OTP IMAP, tambahkan via 'hyfetrial --email-config' (e/edit)"
+            fi
+            return 0
+        elif [ "$_ans" = "$_manual_idx" ]; then
+            _prompt EMAIL "Email (yang akan menerima OTP)"
+            return 0
+        else
+            printf '  pilihan tidak valid (1..%d)\n' "$_manual_idx" >&2
+        fi
+    done
+}
+
 _prompt_choice() {
     _vname="$1"; _label="$2"
     while :; do
@@ -529,7 +665,7 @@ interactive_prompt() {
             _prompt WHATSAPP "Nomor WhatsApp (tanpa +62/0)"
         fi
     fi
-    [ -z "$EMAIL" ]    && _prompt EMAIL    "Email (yang akan menerima OTP)"
+    [ -z "$EMAIL" ]    && _prompt_email
     if [ -z "$EID" ]; then
         {
             printf '\nEID HARUS dari device yang akan dipakai untuk eSIM ini.\n'
@@ -598,8 +734,36 @@ confirm() {
 
 # ---------- main flow ----------
 
+# precheck_config - sanity-check that the loaded config has all the
+# pieces we need for the chosen modes. Emits warnings (not errors) so
+# the user can see what's missing before the actual claim attempt makes
+# them wait through OTP timeouts or captcha errors.
+precheck_config() {
+    if [ "${HYFE_CAPTCHA_MODE:-manual}" != "manual" ] \
+       && [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
+        log_warn "HYFE_CAPTCHA_MODE=$HYFE_CAPTCHA_MODE tapi HYFE_CAPTCHA_KEY kosong"
+        log_warn "captcha pasti gagal - jalankan 'hyfetrial --captcha-config'"
+    fi
+    if [ "${HYFE_OTP_MODE:-manual}" = "imap" ]; then
+        if [ -z "${HYFE_IMAP_URL:-}" ]; then
+            log_warn "HYFE_OTP_MODE=imap tapi HYFE_IMAP_URL kosong"
+            log_warn "jalankan 'hyfetrial --imap-config' untuk isi setting IMAP"
+        fi
+        if [ -z "${HYFE_IMAP_USER:-}" ] && [ -z "${HYFE_EMAIL_1:-}" ]; then
+            log_warn "HYFE_OTP_MODE=imap tapi belum ada email akun (HYFE_EMAIL_N kosong)"
+            log_warn "jalankan 'hyfetrial --email-config' untuk daftarkan email"
+        fi
+        if [ -n "${HYFE_IMAP_USER:-}" ] && [ -z "${HYFE_IMAP_PASS:-}" ]; then
+            log_warn "HYFE_IMAP_USER=$HYFE_IMAP_USER tapi HYFE_IMAP_PASS kosong"
+            log_warn "OTP IMAP butuh App Password Gmail untuk login"
+        fi
+    fi
+}
+
 claim_flow() {
     validate_inputs
+
+    precheck_config
 
     pick_msisdn
 
@@ -653,6 +817,44 @@ claim_flow() {
     printf '%s\n' "$resp" | jq . >&2 2>/dev/null || printf '%s\n' "$resp" >&2
     return 1
 }
+
+# ---------- subcommand dispatch ----------
+# Config-management subcommands short-circuit the normal claim flow so
+# the user can manage their config file without going through the full
+# eSIM submit pipeline. They run BEFORE require_cmd / cookie jar setup
+# so a freshly installed box without curl/jq can still configure things.
+if [ "$SHOW_CONFIG" = 1 ]; then
+    _path="${CONFIG_FILE:-$(config_default_path)}"
+    if [ ! -f "$_path" ]; then
+        printf 'hyfetrial: config %s tidak ada. Buat dengan: hyfetrial --new-config\n' "$_path" >&2
+        exit 2
+    fi
+    config_show "$_path"
+    exit 0
+fi
+
+if [ -n "$WIZARD_MODE" ]; then
+    if [ ! -t 0 ]; then
+        die "wizard config butuh terminal (stdin bukan TTY)"
+    fi
+    _path="${CONFIG_FILE:-$(config_default_path)}"
+    case "$WIZARD_MODE" in
+        new)     wizard_new_config "$_path" ;;
+        captcha) wizard_captcha_config "$_path" ;;
+        imap)    wizard_imap_config "$_path" ;;
+        email)   wizard_email_config "$_path" ;;
+    esac
+    exit 0
+fi
+
+# Claim flow needs network tooling. Verify deps + create cookie jar now,
+# after the config wizards above had a chance to run without them.
+require_cmd curl jq
+
+HYFE_COOKIES="${HYFE_COOKIES:-${TMPDIR:-/tmp}/hyfetrial-cookies.$$}"
+export HYFE_COOKIES
+trap 'rm -f "$HYFE_COOKIES"' EXIT INT TERM
+: > "$HYFE_COOKIES"
 
 if [ "$LIST_ONLY" = 1 ]; then
     list_numbers_mode

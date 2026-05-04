@@ -208,16 +208,46 @@ with OpenWrt config `CONFIG_LIBCURL_IMAP=y` before using IMAP OTP automation.
 
 ## Config file
 
-Daripada mengulang flag panjang, simpan setting captcha/IMAP di file:
+Daripada mengulang flag panjang, simpan setting captcha/IMAP/email di
+`/etc/hyfetrial/config`. File itu **otomatis dibaca** kalau ada — tidak
+perlu lagi `--config /etc/hyfetrial/config` di setiap pemanggilan.
 
 ```sh
-cp etc/config.example /etc/hyfetrial/config
-$EDITOR /etc/hyfetrial/config
-hyfetrial --config /etc/hyfetrial/config \
-          --name "..." --whatsapp ... --email ... --eid ...
+hyfetrial --new-config        # wizard pertama kali / partial edit
+hyfetrial --captcha-config    # update mode + API key captcha saja
+hyfetrial --imap-config       # update server IMAP saja
+hyfetrial --email-config      # tambah/hapus akun email + App Password
+hyfetrial --config            # lihat config aktif (password ter-mask)
+hyfetrial                     # langsung jalan dengan config tersimpan
 ```
 
-CLI flag selalu menang atas nilai di config file.
+### Multi-akun email
+
+Daftarkan beberapa Gmail sebagai pasangan `HYFE_EMAIL_N` +
+`HYFE_IMAP_PASS_N`:
+
+```sh
+HYFE_EMAIL_1=saya@gmail.com
+HYFE_IMAP_PASS_1="aaaa bbbb cccc dddd"
+
+HYFE_EMAIL_2=akun.kedua@gmail.com
+HYFE_IMAP_PASS_2="eeee ffff gggg hhhh"
+```
+
+Saat prompt interaktif, hyfetrial menampilkan menu:
+
+```
+Email:
+  1) saya@gmail.com
+  2) akun.kedua@gmail.com
+  3) ketik manual
+Pilih [1]:
+```
+
+Pilih akun N → email + IMAP App Password ikut dipakai otomatis.
+
+CLI flag selalu menang atas nilai di config file. Override file lain via
+`--config /path/lain` atau `HYFE_DEFAULT_CONFIG=/path/lain`.
 
 ## Endpoint yang dipakai
 
