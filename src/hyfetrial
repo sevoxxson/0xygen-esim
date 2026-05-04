@@ -423,6 +423,52 @@ _prompt() {
     done
 }
 
+_prompt_captcha_mode() {
+    while :; do
+        {
+            printf 'Mode captcha:\n'
+            printf '  1. manual\n'
+            printf '  2. nextcaptcha\n'
+            printf '  3. 2captcha\n'
+            printf '  4. anticaptcha\n'
+            printf '  5. capsolver\n'
+        } >&2
+        _prompt _ans "Pilih mode captcha" "manual"
+        case "$_ans" in
+            1|manual)      HYFE_CAPTCHA_MODE=manual ;;
+            2|nextcaptcha) HYFE_CAPTCHA_MODE=nextcaptcha ;;
+            3|2captcha)    HYFE_CAPTCHA_MODE=2captcha ;;
+            4|anticaptcha) HYFE_CAPTCHA_MODE=anticaptcha ;;
+            5|capsolver)   HYFE_CAPTCHA_MODE=capsolver ;;
+            *)
+                printf '  pilihan tidak valid: %s\n' "$_ans" >&2
+                continue
+                ;;
+        esac
+        return 0
+    done
+}
+
+_prompt_otp_mode() {
+    while :; do
+        {
+            printf 'Mau pakai OTP via IMAP atau manual?\n'
+            printf '  1. imap\n'
+            printf '  2. manual\n'
+        } >&2
+        _prompt _ans "Pilih mode OTP" "manual"
+        case "$_ans" in
+            1|imap)    HYFE_OTP_MODE=imap ;;
+            2|manual)  HYFE_OTP_MODE=manual ;;
+            *)
+                printf '  pilihan tidak valid: %s\n' "$_ans" >&2
+                continue
+                ;;
+        esac
+        return 0
+    done
+}
+
 # Interactive wizard: prompts for any required input that wasn't supplied via
 # CLI flag / config file. Triggered by --interactive or by absence of any
 # required flag.
@@ -442,8 +488,7 @@ interactive_prompt() {
         _prompt PATTERN "Pola digit nomor cantik (kosongkan untuk random)" "" 0 1
     fi
     if [ "$HYFE_CAPTCHA_MODE" = "manual" ] || [ -z "${HYFE_CAPTCHA_MODE:-}" ]; then
-        _prompt _ans "Mode captcha: manual / 2captcha / anticaptcha / capsolver / nextcaptcha" "manual"
-        HYFE_CAPTCHA_MODE="$_ans"
+        _prompt_captcha_mode
         case "$HYFE_CAPTCHA_MODE" in
             2captcha|anticaptcha|capsolver|nextcaptcha)
                 if [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
@@ -454,8 +499,7 @@ interactive_prompt() {
         export HYFE_CAPTCHA_MODE HYFE_CAPTCHA_KEY
     fi
     if [ "${HYFE_OTP_MODE:-manual}" = "manual" ]; then
-        _prompt _ans "Mode OTP: manual / imap" "manual"
-        HYFE_OTP_MODE="$_ans"
+        _prompt_otp_mode
         if [ "$HYFE_OTP_MODE" = "imap" ]; then
             : "${HYFE_IMAP_URL:=imaps://imap.gmail.com:993}"
             _prompt HYFE_IMAP_URL  "IMAP URL"  "$HYFE_IMAP_URL"
