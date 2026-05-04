@@ -218,12 +218,13 @@ _otp_extract() {
     else
         raw=$(cat)
     fi
-    # Decode common MIME encodings enough for ASCII OTPs, then drop headers.
+    # Drop headers before decoding body content; MIME encoded headers can look
+    # like quoted-printable soft line breaks.
     text=$(printf '%s' "$raw" \
         | tr -d '\r' \
+        | awk 'body { print } /^$/ { body=1 }' \
         | awk '{ if (substr($0, length($0), 1) == "=") printf "%s", substr($0, 1, length($0) - 1); else print }' \
-        | sed -e 's/=0D//g' -e 's/=0A/\n/g' -e 's/=3D/=/g' -e 's/=20/ /g' -e 's/=2E/./g' -e 's/=C2=A0/ /g' -e 's/<[^>]*>/ /g' \
-        | awk 'body { print } /^$/ { body=1 }')
+        | sed -e 's/=0D//g' -e 's/=0A/\n/g' -e 's/=3D/=/g' -e 's/=20/ /g' -e 's/=2E/./g' -e 's/=C2=A0/ /g' -e 's/<[^>]*>/ /g')
 
     code=$(printf '%s' "$text" | awk '
         function is_candidate(tok) {
