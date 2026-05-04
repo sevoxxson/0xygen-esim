@@ -213,7 +213,11 @@ _otp_imap() {
 # We prefer candidates that appear shortly after OTP-related keywords, then fall
 # back to any standalone 6-char uppercase/digit token.
 _otp_extract() {
-    raw="$1"
+    if [ "$#" -gt 0 ]; then
+        raw="$1"
+    else
+        raw=$(cat)
+    fi
     # Decode common MIME encodings enough for ASCII OTPs, then drop headers.
     text=$(printf '%s' "$raw" \
         | tr -d '\r' \
@@ -222,46 +226,29 @@ _otp_extract() {
         | awk 'body { print } /^$/ { body=1 }')
 
     code=$(printf '%s' "$text" | awk '
-        function clean(tok) {
-            gsub(/^[^[:alnum:]]+/, "", tok)
-            gsub(/[^[:alnum:]]+$/, "", tok)
-            return tok
-        }
         function is_candidate(tok) {
-            if (length(tok) != 6) return 0
-            if (tok !~ /^[[:alnum:]]+$/) return 0
-            if (tok ~ /[0-9]/ && tok ~ /[[:alpha:]]/) return 1
-            return tok == toupper(tok)
+            return tok ~ /^[A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9]$/
         }
         {
-            line = $0
-            gsub(/[^[:alnum:]]+/, " ", line)
-            n = split(line, fields, /[[:space:]]+/)
+            gsub(/[^[:alnum:]]+/, " ")
+            for (i = 1; i <= NF; i++) {
+                tok = toupper($i)
+                stream[++n] = tok
+                if (fallback == "" && is_candidate(tok)) fallback = tok
+            }
+        }
+        END {
             for (i = 1; i <= n; i++) {
-                key = toupper(clean(fields[i]))
-                if (key == "OTP" || key == "KODE" || key == "CODE") {
-                    for (j = i + 1; j <= n && j <= i + 30; j++) {
-                        tok = clean(fields[j])
-                        if (is_candidate(tok)) {
-                            found = 1
-                            print tok
+                if (stream[i] == "OTP" || stream[i] == "KODE" || stream[i] == "CODE") {
+                    for (j = i + 1; j <= n && j <= i + 60; j++) {
+                        if (is_candidate(stream[j])) {
+                            print stream[j]
                             exit
                         }
                     }
                 }
             }
-            if (fallback == "") {
-                for (i = 1; i <= n; i++) {
-                    tok = clean(fields[i])
-                    if (is_candidate(tok)) {
-                        fallback = tok
-                        break
-                    }
-                }
-            }
-        }
-        END {
-            if (!found && fallback != "") print fallback
+            if (fallback != "") print fallback
         }
     ')
     [ -n "$code" ] && { printf '%s' "$code"; return 0; }
