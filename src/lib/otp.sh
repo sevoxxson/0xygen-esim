@@ -1,9 +1,9 @@
 # shellcheck shell=sh
-# otp.sh - obtain the 6-digit OTP code emailed by HYFE.
+# otp.sh - obtain the OTP code emailed by HYFE.
 #
 # Modes:
 #   manual  - prompt the user to type the code (default)
-#   imap    - poll an IMAP mailbox via curl, scrape the 6-char code from
+#   imap    - poll an IMAP mailbox via curl, scrape the OTP code from
 #             the most recent matching message.
 #
 # Required env for IMAP mode:
@@ -33,7 +33,7 @@ otp_get() {
 _otp_manual() {
     {
         printf '\n'
-        printf '  Cek email Anda untuk kode OTP 6 digit dari HYFE.\n'
+        printf '  Cek email Anda untuk kode OTP dari HYFE.\n'
         printf '  Subject: "%s"\n' "$HYFE_IMAP_SUBJECT"
         printf '\n'
         printf '  Masukkan kode OTP, lalu Enter:\n'
@@ -45,9 +45,9 @@ _otp_manual() {
     printf '%s' "$code"
 }
 
-# Poll an IMAP mailbox via curl. The OTP email contains a 6-digit code in
-# the body; we grep the first 6-digit-only token (also tolerate 6 alphanum)
-# from the latest matching message.
+# Poll an IMAP mailbox via curl. The OTP email currently contains a 6-char
+# code (historically digits-only, now alphanumeric like UWHQZT). We grep the
+# first likely token from the latest matching message.
 _otp_imap() {
     [ -n "${HYFE_IMAP_URL:-}" ]  || { log_error "imap: HYFE_IMAP_URL required"; return 1; }
     [ -n "${HYFE_IMAP_USER:-}" ] || { log_error "imap: HYFE_IMAP_USER required"; return 1; }
@@ -92,23 +92,28 @@ _otp_imap() {
     return 1
 }
 
-# Extract a 6-digit OTP from raw RFC822 message text. We try the most
-# specific patterns first (label "OTP" / "kode" near the digits), then
-# fall back to any standalone 6-digit / 6-alnum sequence.
+# Extract a HYFE OTP from raw RFC822 message text. We try the most specific
+# patterns first (label "OTP" / "kode" / "code" near the token), then fall
+# back to any standalone 6-char uppercase/digit token.
 _otp_extract() {
     raw="$1"
-    # Strip MIME boundaries / decode quoted-printable enough for digits.
+    # Strip MIME boundaries / decode quoted-printable enough for ASCII OTPs.
     text=$(printf '%s' "$raw" \
         | tr -d '\r' \
         | sed -e 's/=3D/=/g' -e 's/=20/ /g' -e 's/=2E/./g')
 
-    # Pattern 1: digits adjacent to "OTP" / "kode"
-    code=$(printf '%s' "$text" | grep -oE -i '(otp|kode|code)[^0-9]{0,40}[0-9]{6}' \
-        | head -n1 | grep -oE '[0-9]{6}' | head -n1)
+    # Pattern 1: token adjacent to "OTP" / "kode" / "code"
+    code=$(printf '%s' "$text" | grep -oE -i '(otp|kode|code)[^A-Z0-9]{0,40}[A-Z0-9]{6}' \
+        | head -n1 | grep -oE '[A-Z0-9]{6}' | head -n1)
     [ -n "$code" ] && { printf '%s' "$code"; return 0; }
 
-    # Pattern 2: any standalone 6 digits
-    code=$(printf '%s' "$text" | grep -oE '\b[0-9]{6}\b' | head -n1)
+    # Pattern 2: token after a colon, common in current HYFE email template
+    code=$(printf '%s' "$text" | grep -oE ':[[:space:]]*[A-Z0-9]{6}\b' \
+        | head -n1 | grep -oE '[A-Z0-9]{6}' | head -n1)
+    [ -n "$code" ] && { printf '%s' "$code"; return 0; }
+
+    # Pattern 3: any standalone 6-char uppercase/digit token
+    code=$(printf '%s' "$text" | grep -oE '\b[A-Z0-9]{6}\b' | head -n1)
     [ -n "$code" ] && { printf '%s' "$code"; return 0; }
 
     return 1
