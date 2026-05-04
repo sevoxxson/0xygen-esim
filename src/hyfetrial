@@ -1,0 +1,390 @@
+#!/bin/sh
+# hyfetrial - claim a HYFE eSIM Trial number from prioritas.xl.co.id
+#
+# This is a CLI front-end that automates the same flow as the web app at
+#   https://prioritas.xl.co.id/hyfe-apply/esim-trial
+#
+# License: see repository LICENSE / README.
+
+set -eu
+
+LIB_DIR="${HYFE_LIB_DIR:-/usr/lib/hyfetrial}"
+if [ ! -d "$LIB_DIR" ] || [ ! -f "$LIB_DIR/common.sh" ]; then
+    # Allow running from a source checkout without installation.
+    unset CDPATH
+    here=$(cd -- "$(dirname -- "$0")" && pwd)
+    for candidate in \
+        "$here/lib" \
+        "$here/../lib/hyfetrial" \
+        "$here/../usr/lib/hyfetrial" \
+        "$here/../share/hyfetrial/lib"
+    do
+        if [ -f "$candidate/common.sh" ]; then
+            LIB_DIR=$(cd -- "$candidate" && pwd)
+            break
+        fi
+    done
+fi
+if [ ! -f "$LIB_DIR/common.sh" ]; then
+    printf 'hyfetrial: cannot locate library scripts (LIB_DIR=%s)\n' "$LIB_DIR" >&2
+    exit 1
+fi
+
+# shellcheck source=src/lib/common.sh
+. "$LIB_DIR/common.sh"
+# shellcheck source=src/lib/api.sh
+. "$LIB_DIR/api.sh"
+# shellcheck source=src/lib/captcha.sh
+. "$LIB_DIR/captcha.sh"
+# shellcheck source=src/lib/otp.sh
+. "$LIB_DIR/otp.sh"
+
+VERSION="0.1.0"
+
+usage() {
+    cat <<EOF
+hyfetrial $VERSION - claim a HYFE eSIM Trial number
+
+USAGE:
+    hyfetrial [OPTIONS]
+    hyfetrial --list-numbers [--pattern PAT]
+
+REQUIRED OPTIONS (for the full claim flow):
+    --name NAME            Full name (e.g. "Andi Pratama")
+    --whatsapp NUMBER      WhatsApp number without +62 / leading 0
+                           (e.g. 81234567890)
+    --email EMAIL          Email address (will receive the OTP)
+    --eid EID              eSIM EID, 32 digits
+                           (Settings -> About -> EID on most phones)
+
+OPTIONAL:
+    --pattern PAT          Filter MSISDN by digit pattern (e.g. 8888)
+    --pick-msisdn MSISDN   Select a specific MSISDN from the listing
+                           (must appear in --list-numbers output)
+    --list-numbers         List candidate MSISDNs and exit
+    --pages N              How many pages to scan when listing (default 1)
+
+CAPTCHA:
+    --captcha-mode MODE    manual | 2captcha | anticaptcha | capsolver
+                           (default: manual; manual prompts you to paste a
+                            grecaptcha token from a real browser)
+    --captcha-key KEY      API key for paid solvers
+    --captcha-timeout SEC  Solver timeout (default 180)
+
+OTP:
+    --otp-mode MODE        manual | imap (default: manual)
+    --imap-url URL         e.g. imaps://imap.gmail.com:993
+    --imap-user USER
+    --imap-pass PASS
+    --imap-folder FOLDER   default: INBOX
+    --imap-subject SUBJ    default: "Kode OTP | eSIM Trial HYFE"
+    --imap-timeout SEC     default: 180
+
+MISC:
+    --config FILE          Source FILE before parsing other options.
+                           Use to pre-set env vars like HYFE_CAPTCHA_KEY.
+    --user-agent STRING    Override User-Agent
+    --dry-run              Print payload but do not call validateAndSubmit
+    --yes                  Skip the final confirmation prompt
+    -v, --verbose          Verbose logging
+    -d, --debug            Debug logging (includes HTTP bodies)
+    -h, --help             Show this help
+        --version          Show version
+
+ENVIRONMENT:
+    HYFE_BASE              Override API base URL
+    HYFE_AUTH_URL          Override Next.js auth URL
+    HYFE_CAPTCHA_MODE      Same as --captcha-mode
+    HYFE_CAPTCHA_KEY       Same as --captcha-key
+    HYFE_OTP_MODE          Same as --otp-mode
+    HYFE_IMAP_URL/USER/PASS/FOLDER/SUBJECT  IMAP settings
+    HYFE_VERBOSE / HYFE_DEBUG  Logging
+
+EXAMPLES:
+    hyfetrial --list-numbers --pattern 8888
+    hyfetrial --name "Andi P" --whatsapp 81234567890 \\
+              --email me@example.com \\
+              --eid 12345678901234567890123456789012 \\
+              --pattern 8888
+
+EOF
+}
+
+# ---------- argument parsing ----------
+
+NAME=""
+WHATSAPP=""
+EMAIL=""
+EID=""
+PATTERN=""
+PICK_MSISDN=""
+LIST_ONLY=0
+PAGES=1
+DRY_RUN=0
+ASSUME_YES=0
+CONFIG_FILE=""
+
+# Parse args (POSIX manual loop)
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --name)             NAME="$2"; shift 2 ;;
+        --whatsapp)         WHATSAPP="$2"; shift 2 ;;
+        --email)            EMAIL="$2"; shift 2 ;;
+        --eid)              EID="$2"; shift 2 ;;
+        --pattern)          PATTERN="$2"; shift 2 ;;
+        --pick-msisdn)      PICK_MSISDN="$2"; shift 2 ;;
+        --list-numbers)     LIST_ONLY=1; shift ;;
+        --pages)            PAGES="$2"; shift 2 ;;
+        --captcha-mode)     HYFE_CAPTCHA_MODE="$2"; shift 2 ;;
+        --captcha-key)      HYFE_CAPTCHA_KEY="$2"; shift 2 ;;
+        --captcha-timeout)  HYFE_CAPTCHA_TIMEOUT="$2"; shift 2 ;;
+        --otp-mode)         HYFE_OTP_MODE="$2"; shift 2 ;;
+        --imap-url)         HYFE_IMAP_URL="$2"; shift 2 ;;
+        --imap-user)        HYFE_IMAP_USER="$2"; shift 2 ;;
+        --imap-pass)        HYFE_IMAP_PASS="$2"; shift 2 ;;
+        --imap-folder)      HYFE_IMAP_FOLDER="$2"; shift 2 ;;
+        --imap-subject)     HYFE_IMAP_SUBJECT="$2"; shift 2 ;;
+        --imap-timeout)     HYFE_IMAP_TIMEOUT="$2"; shift 2 ;;
+        --user-agent)       HYFE_UA="$2"; shift 2 ;;
+        --config)           CONFIG_FILE="$2"; shift 2 ;;
+        --dry-run)          DRY_RUN=1; shift ;;
+        --yes|-y)           ASSUME_YES=1; shift ;;
+        -v|--verbose)       HYFE_VERBOSE=1; shift ;;
+        -d|--debug)         HYFE_DEBUG=1; shift ;;
+        -h|--help)          usage; exit 0 ;;
+        --version)          echo "hyfetrial $VERSION"; exit 0 ;;
+        --)                 shift; break ;;
+        -*)
+            printf 'hyfetrial: unknown option: %s\n' "$1" >&2
+            exit 2
+            ;;
+        *)
+            printf 'hyfetrial: unexpected positional arg: %s\n' "$1" >&2
+            exit 2
+            ;;
+    esac
+done
+
+# Source config file if given (after CLI parsing so CLI wins are loaded
+# already; we only let config set things still empty).
+if [ -n "$CONFIG_FILE" ]; then
+    [ -r "$CONFIG_FILE" ] || die "config not readable: $CONFIG_FILE"
+    # shellcheck disable=SC1090
+    . "$CONFIG_FILE"
+fi
+
+export HYFE_VERBOSE HYFE_DEBUG \
+    HYFE_CAPTCHA_MODE HYFE_CAPTCHA_KEY HYFE_CAPTCHA_TIMEOUT \
+    HYFE_OTP_MODE HYFE_IMAP_URL HYFE_IMAP_USER HYFE_IMAP_PASS \
+    HYFE_IMAP_FOLDER HYFE_IMAP_SUBJECT HYFE_IMAP_TIMEOUT \
+    HYFE_UA HYFE_BASE HYFE_AUTH_URL
+
+require_cmd curl jq
+
+# Cookie jar: per-invocation tmp file.
+HYFE_COOKIES="${HYFE_COOKIES:-${TMPDIR:-/tmp}/hyfetrial-cookies.$$}"
+export HYFE_COOKIES
+trap 'rm -f "$HYFE_COOKIES"' EXIT INT TERM
+: > "$HYFE_COOKIES"
+
+# ---------- input validation ----------
+
+validate_inputs() {
+    err=0
+    if [ -z "$NAME" ];     then log_error "missing --name";     err=1; fi
+    if [ -z "$WHATSAPP" ]; then log_error "missing --whatsapp"; err=1; fi
+    if [ -z "$EMAIL" ];    then log_error "missing --email";    err=1; fi
+    if [ -z "$EID" ];      then log_error "missing --eid";      err=1; fi
+    [ "$err" = 0 ] || return 1
+
+    # Whatsapp: digits only, no leading 0/+62
+    case "$WHATSAPP" in
+        +62*) WHATSAPP=${WHATSAPP#+62} ;;
+        62*)  WHATSAPP=${WHATSAPP#62} ;;
+        0*)   WHATSAPP=${WHATSAPP#0} ;;
+    esac
+    if ! printf '%s' "$WHATSAPP" | grep -Eq '^[0-9]{8,12}$'; then
+        die "invalid --whatsapp: $WHATSAPP (expected 8-12 digits, no +62/0 prefix)"
+    fi
+
+    # Email: minimal sanity
+    case "$EMAIL" in
+        *@*.*) ;;
+        *) die "invalid --email: $EMAIL" ;;
+    esac
+
+    # EID: 32 digits, allow user to paste with separators
+    eid_clean=$(printf '%s' "$EID" | tr -d ' :-')
+    if ! printf '%s' "$eid_clean" | grep -Eq '^[0-9]{32}$'; then
+        die "invalid --eid: expected 32 digits, got '$EID'"
+    fi
+    EID="$eid_clean"
+
+    # Pattern: digits only, up to 5
+    if [ -n "$PATTERN" ] && ! printf '%s' "$PATTERN" | grep -Eq '^[0-9]{1,5}$'; then
+        die "invalid --pattern: $PATTERN (1-5 digits)"
+    fi
+}
+
+# Pick a random page (mirrors the web app's "Math.floor(496*random)+5" trick
+# which spreads requests across the inventory).
+random_page() {
+    if command -v od >/dev/null 2>&1; then
+        n=$(od -An -N4 -tu4 /dev/urandom 2>/dev/null | tr -d ' ')
+        [ -n "$n" ] || n=$(date +%s)
+    else
+        n=$(date +%s)
+    fi
+    echo $(( (n % 496) + 5 ))
+}
+
+# Decide what URL `?page=` and body `pageNo` to use for a given URL pagination
+# index. Mirrors the web app:
+#   - if --pattern set: pageNo=1
+#   - else:             pageNo=random(5..500), URL page iterates 1..N
+_msisdn_body_page() {
+    if [ -n "$PATTERN" ]; then
+        echo 1
+    else
+        random_page
+    fi
+}
+
+# ---------- list-numbers mode ----------
+
+list_numbers_mode() {
+    api_auth
+    api_session
+    url_page=1
+    pages_left="$PAGES"
+    while [ "$pages_left" -gt 0 ]; do
+        body_page=$(_msisdn_body_page)
+        body=$(api_find_msisdn "$url_page" "$body_page" "$PATTERN") || return 1
+        count=$(printf '%s' "$body" | jq -r '.result.data.noMsisdn | length')
+        total=$(printf '%s' "$body" | jq -r '.result.data.totalPageMsisdn // 0')
+        log_verbose "url_page=$url_page count=$count total_pages=$total"
+        printf '%s' "$body" | jq -r '
+            .result.data.noMsisdn[]
+            | "\(.msisdn)\t\(.encrypt)"
+        '
+        pages_left=$((pages_left - 1))
+        url_page=$((url_page + 1))
+        # Stop when we exceed totalPageMsisdn to avoid empty pages.
+        if [ "$total" -gt 0 ] && [ "$url_page" -gt "$total" ]; then
+            break
+        fi
+    done
+}
+
+# Pick the first available MSISDN; if --pick-msisdn was given, find that one
+# in the listing and use its encrypt blob.
+pick_msisdn() {
+    api_auth
+    api_session
+    url_page=1
+    body_page=$(_msisdn_body_page)
+    body=$(api_find_msisdn "$url_page" "$body_page" "$PATTERN") || return 1
+    if [ -n "$PICK_MSISDN" ]; then
+        target="$PICK_MSISDN"
+        # tolerate both 0817-... and raw digits
+        target_clean=$(printf '%s' "$target" | tr -d ' -')
+        line=$(printf '%s' "$body" \
+            | jq -r --arg t "$target_clean" \
+                '.result.data.noMsisdn[] | select(.msisdn == $t) | "\(.msisdn)\t\(.encrypt)"' \
+            | head -n1)
+        if [ -z "$line" ]; then
+            die "pick-msisdn: $target not found on page $url_page (try --list-numbers --pattern ...)"
+        fi
+    else
+        line=$(printf '%s' "$body" \
+            | jq -r '.result.data.noMsisdn[0] | "\(.msisdn)\t\(.encrypt)"')
+    fi
+    if [ -z "$line" ] || [ "$line" = "null" ]; then
+        die "no MSISDN available (url_page=$url_page body_pageNo=$body_page)"
+    fi
+    SELECTED_MSISDN=$(printf '%s' "$line" | cut -f1)
+    SELECTED_ENCRYPT=$(printf '%s' "$line" | cut -f2)
+    log_info "selected MSISDN: $SELECTED_MSISDN"
+}
+
+confirm() {
+    [ "$ASSUME_YES" = 1 ] && return 0
+    {
+        printf '\n'
+        printf '  Akan submit data berikut:\n'
+        printf '    nama   : %s\n' "$NAME"
+        printf '    wa     : 62%s\n' "$WHATSAPP"
+        printf '    email  : %s\n' "$EMAIL"
+        printf '    msisdn : %s\n' "$SELECTED_MSISDN"
+        printf '    eid    : %s\n' "$EID"
+        printf '\n'
+        printf '  Lanjut? [y/N] '
+    } >&2
+    IFS= read -r ans
+    case "$ans" in
+        y|Y|yes|YES) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# ---------- main flow ----------
+
+claim_flow() {
+    validate_inputs
+
+    pick_msisdn
+
+    confirm || die "aborted"
+
+    log_info "step 1/3: requesting tnc opt-in"
+    access_token=$(api_tnc_token) || die "tncToken failed"
+    [ -n "$access_token" ] || die "tncToken returned empty"
+    optin_body=$(api_tnc_optin "$EMAIL" "$access_token") || die "optIn failed"
+    consent_id=$(printf '%s' "$optin_body" | jq -r '.result.data.consentId // empty')
+    [ -n "$consent_id" ] || die "optIn: consentId missing"
+    # The "tokentnc" header on validateAndSubmit is the Keycloak access_token
+    # we obtained from /tnc/tncToken (not a field in the optIn response).
+    tnc_token="$access_token"
+    log_verbose "consentId=$consent_id"
+
+    log_info "step 2/3: sending OTP email to $EMAIL"
+    api_send_otp "$EMAIL" "$NAME" >/dev/null || die "send-otp failed"
+
+    otp_code=$(otp_get) || die "otp not provided"
+    log_verbose "otp=$otp_code"
+
+    log_info "step 3/3: solving captcha (mode=$HYFE_CAPTCHA_MODE)"
+    recap=$(captcha_solve) || die "captcha failed"
+    [ -n "$recap" ] || die "captcha returned empty"
+
+    if [ "$DRY_RUN" = 1 ]; then
+        log_info "dry-run: would call validateAndSubmit"
+        printf 'msisdn=%s eid=%s otp=%s recap=%.20s...\n' \
+            "$SELECTED_MSISDN" "$EID" "$otp_code" "$recap"
+        return 0
+    fi
+
+    log_info "submitting validateAndSubmit"
+    resp=$(api_validate_submit \
+        "$recap" "$otp_code" "$consent_id" \
+        "$SELECTED_ENCRYPT" "$EID" \
+        "$NAME" "$WHATSAPP" "$EMAIL" \
+        "$tnc_token") || die "validateAndSubmit failed"
+    sc=$(printf '%s' "$resp" | jq -r '.statusCode // empty')
+    if [ "$sc" = "200" ]; then
+        log_info "SUCCESS: eSIM trial submitted for $SELECTED_MSISDN"
+        printf '%s\n' "$resp" | jq .
+        return 0
+    fi
+    rc=$(printf '%s' "$resp" | jq -r '.result.data.result.resultCode // empty')
+    rm=$(printf '%s' "$resp" | jq -r '.result.data.result.resultDesc // .statusMessage // empty')
+    log_error "submit failed: statusCode=$sc resultCode=$rc resultDesc=$rm"
+    printf '%s\n' "$resp" | jq . >&2 2>/dev/null || printf '%s\n' "$resp" >&2
+    return 1
+}
+
+if [ "$LIST_ONLY" = 1 ]; then
+    list_numbers_mode
+else
+    claim_flow
+fi
