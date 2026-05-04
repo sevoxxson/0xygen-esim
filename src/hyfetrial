@@ -149,8 +149,44 @@ for _arg do
 done
 if [ -n "$CONFIG_FILE" ]; then
     [ -r "$CONFIG_FILE" ] || { printf 'hyfetrial: config not readable: %s\n' "$CONFIG_FILE" >&2; exit 2; }
+    # Source the config in a way that does NOT silently kill the whole CLI
+    # under `set -eu` if the user's config file has syntax issues. Common
+    # mistakes are an unquoted password containing spaces (e.g.
+    # `HYFE_IMAP_PASS=abc def ghi`) or a stray space after `=` (e.g.
+    # `HYFE_CAPTCHA_KEY= next_xxxx`); both are read by the shell as
+    # `VAR=val command args` and fail with `command not found`, which under
+    # `set -e` aborts the whole script before we have a chance to print
+    # anything useful. Disabling -e for the duration of the source lets us
+    # capture the failure and surface a clear, actionable error.
+    set +e
     # shellcheck disable=SC1090
-    . "$CONFIG_FILE"
+    . "$CONFIG_FILE" 2>/tmp/hyfetrial-cfg-err.$$
+    _cfg_rc=$?
+    set -e
+    # We surface ANY stderr output from sourcing (even when the final exit
+    # code is 0). The reason: a typo on a middle line - e.g. an unquoted
+    # space-containing password - is parsed as `VAR=val command args` and
+    # makes the shell try to run `command`, which then prints `not found`
+    # to stderr and continues. The final source rc reflects only the LAST
+    # statement, so we can't rely on it; instead we trust the stderr file.
+    if [ "$_cfg_rc" -ne 0 ] || [ -s /tmp/hyfetrial-cfg-err.$$ ]; then
+        if [ "$_cfg_rc" -ne 0 ]; then
+            printf 'hyfetrial: failed to source config %s (exit=%d)\n' "$CONFIG_FILE" "$_cfg_rc" >&2
+        else
+            printf 'hyfetrial: config %s sourced with errors:\n' "$CONFIG_FILE" >&2
+        fi
+        if [ -s /tmp/hyfetrial-cfg-err.$$ ]; then
+            printf 'hyfetrial: shell errors:\n' >&2
+            sed 's/^/  /' /tmp/hyfetrial-cfg-err.$$ >&2
+        fi
+        printf 'hyfetrial: hint: pastikan setiap nilai dengan spasi di-quote, mis.\n' >&2
+        printf '  HYFE_IMAP_PASS="abcd efgh ijkl mnop"\n' >&2
+        printf '  HYFE_CAPTCHA_KEY=next_77fexxxxxxxx       # tanpa spasi setelah =\n' >&2
+        rm -f /tmp/hyfetrial-cfg-err.$$
+        exit 2
+    fi
+    rm -f /tmp/hyfetrial-cfg-err.$$
+    unset _cfg_rc
 fi
 unset _found_cfg_flag _arg
 
@@ -345,6 +381,16 @@ pick_msisdn() {
 
 _prompt() {
     # _prompt VARNAME "Question text" "default" [hidden=0|1] [allow_empty=0|1]
+    #
+    # Notes about robustness under `set -eu`:
+    #   * `stty -echo` may fail on minimal busybox setups or when stdin/tty
+    #     is in an unusual state; we wrap with `|| :` so a stty failure
+    #     does not silently abort the whole CLI.
+    #   * `read` returns non-zero on EOF (Ctrl+D, terminal disconnect, or
+    #     stdin closed). Without explicit handling that non-zero status
+    #     would trigger `set -e` and exit silently mid-prompt. Instead we
+    #     detect the EOF, restore echo, and exit with a clear message and
+    #     SIGINT-equivalent rc=130 so the user sees what happened.
     _vname="$1"; _q="$2"; _def="${3:-}"; _hidden="${4:-0}"; _allow_empty="${5:-0}"
     while :; do
         if [ -n "$_def" ]; then
@@ -353,12 +399,19 @@ _prompt() {
             printf '%s: ' "$_q" >&2
         fi
         if [ "$_hidden" = 1 ]; then
-            stty -echo 2>/dev/null
-            IFS= read -r _ans
-            stty echo 2>/dev/null
+            stty -echo 2>/dev/null || :
+            if ! IFS= read -r _ans; then
+                stty echo 2>/dev/null || :
+                printf '\nhyfetrial: input dibatalkan (EOF)\n' >&2
+                exit 130
+            fi
+            stty echo 2>/dev/null || :
             printf '\n' >&2
         else
-            IFS= read -r _ans
+            if ! IFS= read -r _ans; then
+                printf '\nhyfetrial: input dibatalkan (EOF)\n' >&2
+                exit 130
+            fi
         fi
         [ -z "$_ans" ] && _ans="$_def"
         if [ -z "$_ans" ] && [ "$_allow_empty" != 1 ]; then
