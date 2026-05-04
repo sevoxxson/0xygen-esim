@@ -60,16 +60,27 @@ _otp_imap() {
     auth_user="$HYFE_IMAP_USER"
     auth_pass="$HYFE_IMAP_PASS"
 
+    # Record the current highest matching UID as a baseline. We only want OTP
+    # emails that arrive AFTER this polling session starts, otherwise an older
+    # message with the same subject could be mistaken for the fresh OTP.
+    baseline_resp=$(curl -s --max-time 30 \
+        --user "$auth_user:$auth_pass" \
+        --request "SEARCH SUBJECT \"$HYFE_IMAP_SUBJECT\"" \
+        "$base/$folder" 2>/dev/null) || true
+    baseline_max_uid=$(printf '%s' "$baseline_resp" \
+        | awk '/\* SEARCH/{for (i=3;i<=NF;i++) last=$i} END{print last+0}')
+    [ -n "$baseline_max_uid" ] || baseline_max_uid=0
+    log_verbose "imap: baseline max uid=$baseline_max_uid"
+
     while [ "$elapsed" -lt "$HYFE_IMAP_TIMEOUT" ]; do
-        # Start broad enough for real mailboxes: Gmail/OpenWrt behavior around
-        # UNSEEN can be inconsistent, so search by subject first, then inspect a
-        # handful of most-recent matching UIDs in descending order.
+        # Search by subject, but only inspect UIDs newer than the baseline above.
         search_resp=$(curl -s --max-time 30 \
             --user "$auth_user:$auth_pass" \
             --request "SEARCH SUBJECT \"$HYFE_IMAP_SUBJECT\"" \
             "$base/$folder" 2>/dev/null) || true
         # Response looks like: "* SEARCH 12 13 14"
-        ids=$(printf '%s' "$search_resp" | awk '/\* SEARCH/{for (i=3;i<=NF;i++) print $i}')
+        ids=$(printf '%s' "$search_resp" \
+            | awk -v min_uid="$baseline_max_uid" '/\* SEARCH/{for (i=3;i<=NF;i++) if (($i+0) > min_uid) print $i}')
         if [ -n "$ids" ]; then
             recent_ids=$(printf '%s\n' "$ids" \
                 | tail -n 10 \
@@ -90,12 +101,12 @@ _otp_imap() {
                 fi
             done
         else
-            log_verbose "imap: no subject matches yet"
+            log_verbose "imap: no new subject matches yet"
         fi
         sleep 5
         elapsed=$((elapsed + 5))
     done
-    log_error "imap: timeout, no matching email with subject '$HYFE_IMAP_SUBJECT'"
+    log_error "imap: timeout, no new matching email with subject '$HYFE_IMAP_SUBJECT'"
     return 1
 }
 
