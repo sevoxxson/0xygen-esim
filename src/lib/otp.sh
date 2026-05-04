@@ -213,52 +213,47 @@ _otp_imap() {
 # We prefer candidates that appear shortly after OTP-related keywords, then fall
 # back to any standalone 6-char uppercase/digit token.
 _otp_extract() {
-    raw="$1"
-    # Decode common MIME encodings enough for ASCII OTPs, then drop headers.
+    if [ "$#" -gt 0 ]; then
+        raw="$1"
+    else
+        raw=$(cat)
+    fi
+    # Drop headers before decoding body content; MIME encoded headers can look
+    # like quoted-printable soft line breaks.
     text=$(printf '%s' "$raw" \
         | tr -d '\r' \
-        | sed ':a; /=$/{N; s/=\n//; ta;}' \
-        | sed -e 's/=0D//g' -e 's/=0A/\n/g' -e 's/=3D/=/g' -e 's/=20/ /g' -e 's/=2E/./g' -e 's/=C2=A0/ /g' -e 's/<[^>]*>/ /g' \
-        | awk 'body { print } /^$/ { body=1 }')
+        | awk 'body { print } /^$/ { body=1 }' \
+        | awk '{ if (substr($0, length($0), 1) == "=") printf "%s", substr($0, 1, length($0) - 1); else print }' \
+        | sed -e 's/=0D//g' -e 's/=0A/\n/g' -e 's/=3D/=/g' -e 's/=20/ /g' -e 's/=2E/./g' -e 's/=C2=A0/ /g' -e 's/<[^>]*>/ /g')
 
     code=$(printf '%s' "$text" | awk '
-        function clean(tok) {
-            gsub(/^[^[:alnum:]]+/, "", tok)
-            gsub(/[^[:alnum:]]+$/, "", tok)
-            return tok
-        }
         function is_candidate(tok) {
             if (length(tok) != 6) return 0
-            if (tok !~ /^[[:alnum:]]+$/) return 0
-            if (tok ~ /[0-9]/ && tok ~ /[[:alpha:]]/) return 1
+            if (tok !~ /^[[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]]$/) return 0
+            if (tok ~ /[0-9]/) return tok == toupper(tok)
             return tok == toupper(tok)
         }
         {
+            gsub(/[^[:alnum:]]+/, " ")
             for (i = 1; i <= NF; i++) {
-                key = toupper(clean($i))
-                if (key == "OTP" || key == "KODE" || key == "CODE") {
-                    for (j = i + 1; j <= NF && j <= i + 12; j++) {
-                        tok = clean($j)
-                        if (is_candidate(tok)) {
-                            found = 1
-                            print tok
+                raw_tok = $i
+                stream[++n] = toupper(raw_tok)
+                raw_stream[n] = raw_tok
+                if (fallback == "" && is_candidate(raw_tok)) fallback = toupper(raw_tok)
+            }
+        }
+        END {
+            for (i = 1; i <= n; i++) {
+                if (stream[i] == "OTP" || stream[i] == "KODE" || stream[i] == "CODE") {
+                    for (j = i + 1; j <= n && j <= i + 60; j++) {
+                        if (is_candidate(raw_stream[j])) {
+                            print stream[j]
                             exit
                         }
                     }
                 }
             }
-            if (fallback == "") {
-                for (i = 1; i <= NF; i++) {
-                    tok = clean($i)
-                    if (is_candidate(tok)) {
-                        fallback = tok
-                        break
-                    }
-                }
-            }
-        }
-        END {
-            if (!found && fallback != "") print fallback
+            if (fallback != "") print fallback
         }
     ')
     [ -n "$code" ] && { printf '%s' "$code"; return 0; }
