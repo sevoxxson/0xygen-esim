@@ -159,7 +159,11 @@ _otp_imap() {
     while [ "$elapsed" -lt "$HYFE_IMAP_TIMEOUT" ]; do
         # Curl fetches `;UID=...` with UID FETCH, so the search must also
         # return UIDs rather than mailbox sequence numbers.
-        search_resp=$(_otp_imap_search_all_uids) || return 1
+        if ! search_resp=$(_otp_imap_search_all_uids); then
+            sleep 5
+            elapsed=$((elapsed + 5))
+            continue
+        fi
         ids=$(printf '%s' "$search_resp" \
             | awk -v min_uid="$baseline_max_uid" '/\* SEARCH/{for (i=3;i<=NF;i++) if (($i+0) > min_uid) print $i}')
         if [ -n "$ids" ]; then
