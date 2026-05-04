@@ -1,10 +1,17 @@
-# /etc/hyfetrial/config - example config sourced by hyfetrial --config
+# /etc/hyfetrial/config - default config auto-loaded by hyfetrial
 #
-# Copy ke /etc/hyfetrial/config dan isi sesuai kebutuhan, lalu jalankan:
-#   hyfetrial --config /etc/hyfetrial/config \
-#             --name "Andi P" --whatsapp 81234567890 \
-#             --email me@example.com \
-#             --eid 12345678901234567890123456789012
+# Sejak versi 0.1.x hyfetrial otomatis membaca file ini kalau ada.
+# Tidak perlu lagi `--config /etc/hyfetrial/config` setiap kali jalan.
+#
+# Cara isi cepat (tanpa edit file):
+#   hyfetrial --new-config        # wizard pertama kali / partial edit
+#   hyfetrial --captcha-config    # update mode + API key captcha saja
+#   hyfetrial --imap-config       # update server IMAP saja
+#   hyfetrial --email-config      # tambah/hapus email + App Password
+#   hyfetrial --config            # lihat config aktif (password ter-mask)
+#
+# Setelah config terisi, cukup:
+#   hyfetrial
 
 # ---------- captcha ----------
 # Pilih salah satu mode:
@@ -26,13 +33,31 @@
 #                  OpenWrt: build curl/libcurl dengan CONFIG_LIBCURL_IMAP=y
 #HYFE_OTP_MODE=manual
 
-# Jika HYFE_OTP_MODE=imap, isi setting di bawah:
+# Jika HYFE_OTP_MODE=imap, isi setting server di bawah:
 #HYFE_IMAP_URL=imaps://imap.gmail.com:993
-#HYFE_IMAP_USER=me@gmail.com
-#HYFE_IMAP_PASS=app-password-anda
 #HYFE_IMAP_FOLDER=INBOX
 #HYFE_IMAP_SUBJECT=Kode OTP | eSIM Trial HYFE
 #HYFE_IMAP_TIMEOUT=180
+
+# ---------- email accounts (multi) ----------
+# Daftarkan satu atau lebih akun Gmail di sini. Saat hyfetrial jalan
+# interaktif, prompt email akan menampilkan daftar ini sebagai menu.
+# Pilih akun N -> hyfetrial otomatis pakai HYFE_IMAP_PASS_N untuk IMAP.
+#
+# Tambahkan/hapus pasangan ini lewat: `hyfetrial --email-config`
+#
+#HYFE_EMAIL_1=saya@gmail.com
+#HYFE_IMAP_PASS_1="aaaa bbbb cccc dddd"
+#
+#HYFE_EMAIL_2=akun.kedua@gmail.com
+#HYFE_IMAP_PASS_2="eeee ffff gggg hhhh"
+#
+#HYFE_EMAIL_3=akun.ketiga@gmail.com
+#HYFE_IMAP_PASS_3="iiii jjjj kkkk llll"
+
+# Single-account fallback (kalau tidak pakai HYFE_EMAIL_N):
+#HYFE_IMAP_USER=me@gmail.com
+#HYFE_IMAP_PASS=app-password-anda
 
 # ---------- misc ----------
 #HYFE_VERBOSE=0
