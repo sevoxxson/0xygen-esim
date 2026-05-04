@@ -20,8 +20,8 @@
 
 # ---------- otp ----------
 # Pilih salah satu mode:
-#   manual       - default; CLI minta kode 6 digit hasil ketik manual
-#   imap         - polling IMAP untuk auto-baca kode
+#   manual       - default; CLI minta OTP 6 karakter hasil ketik manual
+#   imap         - polling IMAP untuk auto-baca OTP
 #HYFE_OTP_MODE=manual
 
 # Jika HYFE_OTP_MODE=imap, isi setting di bawah:

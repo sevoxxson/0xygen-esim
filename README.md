@@ -139,7 +139,7 @@ Pastikan `curl` dan `jq` terpasang.
 | `2captcha`    | Solve via API <https://2captcha.com/>              | min $1 (~Rp16K), $1-2.99/1000 |
 | `anticaptcha` | Solve via API <https://anti-captcha.com/>          | min $5, ~$2/1000 |
 | `capsolver`   | Solve via API <https://capsolver.com/>             | min $5, $1/1000 |
-| `nextcaptcha` | Solve via API <https://nextcaptcha.com/>           | **free trial** via Telegram bot [@nextcaptcha_bot](https://t.me/nextcaptcha_bot), then $0.6/1000 |
+| `nextcaptcha` | Solve via API <https://nextcaptcha.com/>           | **free trial** via Telegram bot [@nextcaptcha_free_trial_bot](https://t.me/nextcaptcha_free_trial_bot), then $0.6/1000 |
 
 Contoh dengan 2captcha:
 
@@ -152,8 +152,8 @@ hyfetrial --captcha-mode 2captcha --captcha-key YOUR_KEY \
 
 | Mode      | Cara kerja                                                       |
 | --------- | ---------------------------------------------------------------- |
-| `manual`  | Ketik 6-digit OTP di terminal (default)                          |
-| `imap`    | Polling IMAP via curl, auto-ambil kode dari email terbaru        |
+| `manual`  | Ketik OTP 6 karakter di terminal (default)                       |
+| `imap`    | Polling IMAP via curl, auto-ambil OTP dari email terbaru         |
 
 Contoh IMAP (Gmail App Password):
 
