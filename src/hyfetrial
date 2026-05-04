@@ -46,10 +46,15 @@ usage() {
 hyfetrial $VERSION - claim a HYFE eSIM Trial number
 
 USAGE:
-    hyfetrial [OPTIONS]
+    hyfetrial                       (mode interaktif - tanya satu per satu)
+    hyfetrial -i                    (paksa mode interaktif)
+    hyfetrial [OPTIONS]             (mode non-interaktif via flag)
     hyfetrial --list-numbers [--pattern PAT]
 
-REQUIRED OPTIONS (for the full claim flow):
+Kalau dijalankan tanpa flag wajib (--name/--whatsapp/--email/--eid),
+hyfetrial otomatis masuk mode interaktif dan menanyakan setiap input.
+
+REQUIRED OPTIONS (untuk full claim flow / non-interaktif):
     --name NAME            Full name (e.g. "Andi Pratama")
     --whatsapp NUMBER      WhatsApp number without +62 / leading 0
                            (e.g. 81234567890)
@@ -82,7 +87,9 @@ OTP:
 
 MISC:
     --config FILE          Source FILE before parsing other options.
-                           Use to pre-set env vars like HYFE_CAPTCHA_KEY.
+                           CLI flags always override values set in FILE.
+    -i, --interactive      Force interactive prompts even when flags are
+                           given (akan menanyakan input yang masih kosong).
     --user-agent STRING    Override User-Agent
     --dry-run              Print payload but do not call validateAndSubmit
     --yes                  Skip the final confirmation prompt
@@ -122,7 +129,27 @@ LIST_ONLY=0
 PAGES=1
 DRY_RUN=0
 ASSUME_YES=0
+INTERACTIVE=0
 CONFIG_FILE=""
+
+# Pre-scan args for --config so we can source the config BEFORE the main parse
+# loop. That way subsequent CLI flags reliably override config-file values
+# (which is the documented "CLI wins" precedence).
+_argv="$*"
+_prev=""
+for _arg in $_argv; do
+    if [ "$_prev" = "--config" ]; then
+        CONFIG_FILE="$_arg"
+        break
+    fi
+    _prev="$_arg"
+done
+if [ -n "$CONFIG_FILE" ]; then
+    [ -r "$CONFIG_FILE" ] || { printf 'hyfetrial: config not readable: %s\n' "$CONFIG_FILE" >&2; exit 2; }
+    # shellcheck disable=SC1090
+    . "$CONFIG_FILE"
+fi
+unset _argv _prev _arg
 
 # Parse args (POSIX manual loop)
 while [ $# -gt 0 ]; do
@@ -147,6 +174,7 @@ while [ $# -gt 0 ]; do
         --imap-timeout)     HYFE_IMAP_TIMEOUT="$2"; shift 2 ;;
         --user-agent)       HYFE_UA="$2"; shift 2 ;;
         --config)           CONFIG_FILE="$2"; shift 2 ;;
+        -i|--interactive)   INTERACTIVE=1; shift ;;
         --dry-run)          DRY_RUN=1; shift ;;
         --yes|-y)           ASSUME_YES=1; shift ;;
         -v|--verbose)       HYFE_VERBOSE=1; shift ;;
@@ -164,14 +192,6 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
-
-# Source config file if given (after CLI parsing so CLI wins are loaded
-# already; we only let config set things still empty).
-if [ -n "$CONFIG_FILE" ]; then
-    [ -r "$CONFIG_FILE" ] || die "config not readable: $CONFIG_FILE"
-    # shellcheck disable=SC1090
-    . "$CONFIG_FILE"
-fi
 
 export HYFE_VERBOSE HYFE_DEBUG \
     HYFE_CAPTCHA_MODE HYFE_CAPTCHA_KEY HYFE_CAPTCHA_TIMEOUT \
@@ -296,15 +316,109 @@ pick_msisdn() {
             die "pick-msisdn: $target not found on page $url_page (try --list-numbers --pattern ...)"
         fi
     else
+        # Guard with `if length == 0 then empty` so an empty array yields ""
+        # instead of jq's default "null\tnull" output (which would otherwise
+        # slip past the `[ "$line" = "null" ]` check below).
         line=$(printf '%s' "$body" \
-            | jq -r '.result.data.noMsisdn[0] | "\(.msisdn)\t\(.encrypt)"')
+            | jq -r '
+                if (.result.data.noMsisdn | length) == 0
+                then empty
+                else .result.data.noMsisdn[0]
+                     | "\(.msisdn)\t\(.encrypt)"
+                end')
     fi
-    if [ -z "$line" ] || [ "$line" = "null" ]; then
+    # Defense-in-depth: also reject "null" or "null\tnull" if jq behaviour
+    # changes upstream.
+    case "$line" in
+        ""|null|null*null) line="" ;;
+    esac
+    if [ -z "$line" ]; then
         die "no MSISDN available (url_page=$url_page body_pageNo=$body_page)"
     fi
     SELECTED_MSISDN=$(printf '%s' "$line" | cut -f1)
     SELECTED_ENCRYPT=$(printf '%s' "$line" | cut -f2)
     log_info "selected MSISDN: $SELECTED_MSISDN"
+}
+
+_prompt() {
+    # _prompt VARNAME "Question text" "default" [hidden=0|1] [allow_empty=0|1]
+    _vname="$1"; _q="$2"; _def="${3:-}"; _hidden="${4:-0}"; _allow_empty="${5:-0}"
+    while :; do
+        if [ -n "$_def" ]; then
+            printf '%s [%s]: ' "$_q" "$_def" >&2
+        else
+            printf '%s: ' "$_q" >&2
+        fi
+        if [ "$_hidden" = 1 ]; then
+            stty -echo 2>/dev/null
+            IFS= read -r _ans
+            stty echo 2>/dev/null
+            printf '\n' >&2
+        else
+            IFS= read -r _ans
+        fi
+        [ -z "$_ans" ] && _ans="$_def"
+        if [ -z "$_ans" ] && [ "$_allow_empty" != 1 ]; then
+            printf '  (wajib diisi)\n' >&2
+            continue
+        fi
+        eval "$_vname=\$_ans"
+        return 0
+    done
+}
+
+# Interactive wizard: prompts for any required input that wasn't supplied via
+# CLI flag / config file. Triggered by --interactive or by absence of any
+# required flag.
+interactive_prompt() {
+    if [ ! -t 0 ]; then
+        die "interactive mode butuh terminal (stdin bukan TTY)"
+    fi
+    {
+        printf '\n=== hyfetrial: mode interaktif ===\n'
+        printf '(tekan Enter untuk pakai nilai default kalau ada)\n\n'
+    } >&2
+    [ -z "$NAME" ]     && _prompt NAME     "Nama lengkap"
+    [ -z "$WHATSAPP" ] && _prompt WHATSAPP "Nomor WhatsApp (tanpa +62/0)"
+    [ -z "$EMAIL" ]    && _prompt EMAIL    "Email (yang akan menerima OTP)"
+    [ -z "$EID" ]      && _prompt EID      "EID eSIM (32 digit)"
+    if [ -z "$PATTERN" ] && [ -z "$PICK_MSISDN" ]; then
+        _prompt PATTERN "Pola digit nomor cantik (kosongkan untuk random)" "" 0 1
+    fi
+    if [ "$HYFE_CAPTCHA_MODE" = "manual" ] || [ -z "${HYFE_CAPTCHA_MODE:-}" ]; then
+        _prompt _ans "Mode captcha: manual / 2captcha / anticaptcha / capsolver" "manual"
+        HYFE_CAPTCHA_MODE="$_ans"
+        case "$HYFE_CAPTCHA_MODE" in
+            2captcha|anticaptcha|capsolver)
+                if [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
+                    _prompt HYFE_CAPTCHA_KEY "API key untuk $HYFE_CAPTCHA_MODE" "" 1
+                fi
+                ;;
+        esac
+        export HYFE_CAPTCHA_MODE HYFE_CAPTCHA_KEY
+    fi
+    if [ "${HYFE_OTP_MODE:-manual}" = "manual" ]; then
+        _prompt _ans "Mode OTP: manual / imap" "manual"
+        HYFE_OTP_MODE="$_ans"
+        if [ "$HYFE_OTP_MODE" = "imap" ]; then
+            : "${HYFE_IMAP_URL:=imaps://imap.gmail.com:993}"
+            _prompt HYFE_IMAP_URL  "IMAP URL"  "$HYFE_IMAP_URL"
+            _prompt HYFE_IMAP_USER "IMAP user" "${HYFE_IMAP_USER:-$EMAIL}"
+            [ -z "${HYFE_IMAP_PASS:-}" ] && _prompt HYFE_IMAP_PASS "IMAP pass (App Password)" "" 1
+        fi
+        export HYFE_OTP_MODE HYFE_IMAP_URL HYFE_IMAP_USER HYFE_IMAP_PASS
+    fi
+    printf '\n' >&2
+}
+
+# Auto-trigger interactive when nothing was given (and not in list/dry-help mode).
+auto_interactive() {
+    [ "$LIST_ONLY" = 1 ] && return 1
+    [ "$INTERACTIVE" = 1 ] && return 0
+    if [ -z "$NAME" ] && [ -z "$WHATSAPP" ] && [ -z "$EMAIL" ] && [ -z "$EID" ] && [ -z "$PICK_MSISDN" ]; then
+        return 0
+    fi
+    return 1
 }
 
 confirm() {
@@ -386,5 +500,8 @@ claim_flow() {
 if [ "$LIST_ONLY" = 1 ]; then
     list_numbers_mode
 else
+    if auto_interactive; then
+        interactive_prompt
+    fi
     claim_flow
 fi

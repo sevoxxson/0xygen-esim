@@ -1,0 +1,137 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+
+  lint:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+      - name: Lint
+        run: shellcheck -s sh src/hyfetrial src/lib/*.sh
+
+  # ---------------------------------------------------------------------------
+  # OpenWrt 24.10  -> .ipk (legacy opkg). PKGARCH:=all so we only build
+  # against one ARCH but the resulting hyfetrial_<ver>_all.ipk is portable
+  # to every OpenWrt 24.10 target.
+  # ---------------------------------------------------------------------------
+  build-ipk-2410:
+    name: Build .ipk (OpenWrt 24.10)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build hyfetrial.ipk via OpenWrt SDK
+        uses: openwrt/gh-action-sdk@main
+        env:
+          # Pin to a 24.10.x SDK Docker tag (legacy opkg / .ipk).
+          ARCH: x86_64-24.10.0
+          FEEDNAME: hyfetrial
+          # FEED_DIR defaults to $GITHUB_WORKSPACE, so feeds will scan the
+          # whole repo and find openwrt/hyfetrial/Makefile recursively.
+          PACKAGES: hyfetrial
+          NO_REFRESH_CHECK: 1
+          NO_SHFMT_CHECK: 1
+          V: s
+
+      - name: Stage .ipk artifact
+        run: |
+          mkdir -p dist
+          # The SDK output lives somewhere under bin/packages/<arch>/<feed>/
+          find . -name 'hyfetrial_*_all.ipk' -exec cp -v {} dist/ \;
+          ls -la dist/
+
+      - name: Upload .ipk artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hyfetrial-openwrt-24.10-ipk
+          path: dist/*.ipk
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # OpenWrt 25 SNAPSHOT -> .apk (new apk-tools backend). The same SDK action
+  # produces .apk when the underlying SDK is from a SNAPSHOT image.
+  # ---------------------------------------------------------------------------
+  build-apk-snapshot:
+    name: Build .apk (OpenWrt 25 SNAPSHOT)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build hyfetrial.apk via OpenWrt SDK (SNAPSHOT)
+        uses: openwrt/gh-action-sdk@main
+        env:
+          # `x86_64` (no version suffix) tracks SNAPSHOT, which uses apk-tools.
+          ARCH: x86_64
+          FEEDNAME: hyfetrial
+          PACKAGES: hyfetrial
+          NO_REFRESH_CHECK: 1
+          NO_SHFMT_CHECK: 1
+          V: s
+
+      - name: Stage .apk artifact
+        run: |
+          mkdir -p dist
+          # SNAPSHOT SDKs produce .apk; some still produce .ipk during the
+          # transition - keep both if present.
+          find . -name 'hyfetrial-*.apk' -o -name 'hyfetrial_*_all.ipk' \
+              -exec cp -v {} dist/ \;
+          ls -la dist/
+
+      - name: Upload .apk artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hyfetrial-openwrt-snapshot-apk
+          path: |
+            dist/*.apk
+            dist/*.ipk
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # When a tag like v0.1.0 is pushed, gather the artifacts from the matrix
+  # builds above and attach them to a GitHub Release.
+  # ---------------------------------------------------------------------------
+  release:
+    name: Attach artifacts to GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-ipk-2410, build-apk-snapshot]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifact tree
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.ipk' -o -name '*.apk' \) \
+              -exec cp -v {} release/ \;
+          ls -la release/
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

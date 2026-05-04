@@ -126,11 +126,22 @@ assert_status_ok() {
 
 # Read cookie value from cookie jar.
 # Usage: cookie_get <name>
+#
+# curl writes Netscape-format cookies. Comment lines start with `# `.
+# HttpOnly cookies are written as `#HttpOnly_<domain>\t...` (no space, leading
+# `#` is significant). We must include those - the auth `token` cookie set by
+# /hyfe-apply/api/auth is HttpOnly - while still excluding real `# Netscape...`
+# header/comment lines.
 cookie_get() {
     name="$1"
     [ -f "$HYFE_COOKIES" ] || return 1
     awk -v n="$name" '
-        $0 !~ /^#/ && $6 == n { print $7; exit }
+        # skip blank lines and comments that are NOT "#HttpOnly_..."
+        /^[[:space:]]*$/ { next }
+        /^#/ && $0 !~ /^#HttpOnly_/ { next }
+        # for HttpOnly lines the domain field still has the "#HttpOnly_" prefix,
+        # but field positions are unchanged, so $6 is still the cookie name.
+        $6 == n { print $7; exit }
     ' "$HYFE_COOKIES"
 }
 
