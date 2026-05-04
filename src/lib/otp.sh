@@ -61,35 +61,41 @@ _otp_imap() {
     auth_pass="$HYFE_IMAP_PASS"
 
     while [ "$elapsed" -lt "$HYFE_IMAP_TIMEOUT" ]; do
-        # IMAP SEARCH for unseen + matching subject. RFC 3501 SEARCH is supported
-        # by curl --request 'SEARCH ...'.
+        # Start broad enough for real mailboxes: Gmail/OpenWrt behavior around
+        # UNSEEN can be inconsistent, so search by subject first, then inspect a
+        # handful of most-recent matching UIDs in descending order.
         search_resp=$(curl -s --max-time 30 \
             --user "$auth_user:$auth_pass" \
-            --request "SEARCH UNSEEN SUBJECT \"$HYFE_IMAP_SUBJECT\"" \
+            --request "SEARCH SUBJECT \"$HYFE_IMAP_SUBJECT\"" \
             "$base/$folder" 2>/dev/null) || true
         # Response looks like: "* SEARCH 12 13 14"
         ids=$(printf '%s' "$search_resp" | awk '/\* SEARCH/{for (i=3;i<=NF;i++) print $i}')
         if [ -n "$ids" ]; then
-            # Take the highest UID (most recent)
-            uid=$(printf '%s\n' "$ids" | tail -n1)
-            log_verbose "imap: candidate uid=$uid"
-            body=$(curl -s --max-time 30 \
-                --user "$auth_user:$auth_pass" \
-                --url "$base/$folder;UID=$uid" 2>/dev/null) || true
-            if [ -n "$body" ]; then
-                code=$(_otp_extract "$body")
-                if [ -n "$code" ]; then
-                    log_info "imap: extracted OTP code"
-                    printf '%s' "$code"
-                    return 0
+            recent_ids=$(printf '%s\n' "$ids" \
+                | tail -n 10 \
+                | awk '{a[NR]=$0} END{for (i=NR;i>=1;i--) print a[i]}')
+            for uid in $recent_ids; do
+                log_verbose "imap: candidate uid=$uid"
+                body=$(curl -s --max-time 30 \
+                    --user "$auth_user:$auth_pass" \
+                    --url "$base/$folder;UID=$uid" 2>/dev/null) || true
+                if [ -n "$body" ]; then
+                    code=$(_otp_extract "$body")
+                    if [ -n "$code" ]; then
+                        log_info "imap: extracted OTP code"
+                        printf '%s' "$code"
+                        return 0
+                    fi
+                    log_verbose "imap: uid=$uid fetched but OTP token not matched"
                 fi
-                log_verbose "imap: uid=$uid fetched but OTP token not matched"
-            fi
+            done
+        else
+            log_verbose "imap: no subject matches yet"
         fi
         sleep 5
         elapsed=$((elapsed + 5))
     done
-    log_error "imap: timeout, no matching email"
+    log_error "imap: timeout, no matching email with subject '$HYFE_IMAP_SUBJECT'"
     return 1
 }
 
