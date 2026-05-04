@@ -58,12 +58,18 @@ config_set() {
     _quoted=$(sh_quote "$_v")
     if grep -q "^${_k}=" "$_f" 2>/dev/null; then
         _tmp="${_f}.tmp.$$"
-        awk -v k="$_k" -v v="$_quoted" '
-            BEGIN { pat="^"k"=" }
+        # Pass the already-shell-quoted value via the environment instead of
+        # `awk -v`. `-v` applies C-style escape processing (\" -> ", \\ -> \,
+        # \n -> newline) which would undo sh_quote's escaping and produce
+        # an unsourceable config. ENVIRON[] returns the raw bytes.
+        _CONFIG_SET_VALUE="$_quoted" \
+        awk -v k="$_k" '
+            BEGIN { v=ENVIRON["_CONFIG_SET_VALUE"]; pat="^"k"=" }
             $0 ~ pat && !replaced { print k"="v; replaced=1; next }
             { print }
             END { if (!replaced) print k"="v }
         ' "$_f" > "$_tmp" && mv -- "$_tmp" "$_f"
+        unset _CONFIG_SET_VALUE
     else
         # Make sure file ends with a newline before appending.
         if [ -s "$_f" ]; then
