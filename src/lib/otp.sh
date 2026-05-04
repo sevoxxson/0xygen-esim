@@ -15,6 +15,7 @@
 #   HYFE_IMAP_TIMEOUT (optional, default 120)
 #
 # Usage:
+#   otp_capture_baseline >/dev/null 2>&1 || true   # optional, IMAP only
 #   code=$(otp_get) || exit 1
 
 : "${HYFE_OTP_MODE:=manual}"
@@ -27,6 +28,13 @@ otp_get() {
         manual) _otp_manual ;;
         imap)   _otp_imap ;;
         *)      log_error "unknown otp mode: $HYFE_OTP_MODE"; return 1 ;;
+    esac
+}
+
+otp_capture_baseline() {
+    case "$HYFE_OTP_MODE" in
+        imap) _otp_imap_capture_baseline ;;
+        *)    return 0 ;;
     esac
 }
 
@@ -48,29 +56,48 @@ _otp_manual() {
 # Poll an IMAP mailbox via curl. The OTP email currently contains a 6-char
 # code (historically digits-only, now alphanumeric like UWHQZT). We grep the
 # first likely token from the latest matching message.
-_otp_imap() {
+_otp_imap_common_prep() {
     [ -n "${HYFE_IMAP_URL:-}" ]  || { log_error "imap: HYFE_IMAP_URL required"; return 1; }
     [ -n "${HYFE_IMAP_USER:-}" ] || { log_error "imap: HYFE_IMAP_USER required"; return 1; }
     [ -n "${HYFE_IMAP_PASS:-}" ] || { log_error "imap: HYFE_IMAP_PASS required"; return 1; }
 
-    log_info "imap: polling $HYFE_IMAP_URL/$HYFE_IMAP_FOLDER for OTP (timeout ${HYFE_IMAP_TIMEOUT}s)"
-    elapsed=0
     base="$HYFE_IMAP_URL"
     folder=$(printf '%s' "$HYFE_IMAP_FOLDER" | sed 's/ /%20/g')
     auth_user="$HYFE_IMAP_USER"
     auth_pass="$HYFE_IMAP_PASS"
+}
 
-    # Record the current highest matching UID as a baseline. We only want OTP
-    # emails that arrive AFTER this polling session starts, otherwise an older
-    # message with the same subject could be mistaken for the fresh OTP.
-    baseline_resp=$(curl -s --max-time 30 \
+_otp_imap_latest_subject_uid() {
+    search_resp=$(curl -s --max-time 30 \
         --user "$auth_user:$auth_pass" \
         --request "SEARCH SUBJECT \"$HYFE_IMAP_SUBJECT\"" \
         "$base/$folder" 2>/dev/null) || true
-    baseline_max_uid=$(printf '%s' "$baseline_resp" \
-        | awk '/\* SEARCH/{for (i=3;i<=NF;i++) last=$i} END{print last+0}')
-    [ -n "$baseline_max_uid" ] || baseline_max_uid=0
-    log_verbose "imap: baseline max uid=$baseline_max_uid"
+    printf '%s' "$search_resp" \
+        | awk '/\* SEARCH/{for (i=3;i<=NF;i++) last=$i} END{print last+0}'
+}
+
+_otp_imap_capture_baseline() {
+    _otp_imap_common_prep || return 1
+    HYFE_IMAP_BASELINE_UID=$(_otp_imap_latest_subject_uid)
+    [ -n "$HYFE_IMAP_BASELINE_UID" ] || HYFE_IMAP_BASELINE_UID=0
+    export HYFE_IMAP_BASELINE_UID
+    log_verbose "imap: baseline max uid=$HYFE_IMAP_BASELINE_UID"
+}
+
+_otp_imap() {
+    _otp_imap_common_prep || return 1
+
+    log_info "imap: polling $HYFE_IMAP_URL/$HYFE_IMAP_FOLDER for OTP (timeout ${HYFE_IMAP_TIMEOUT}s)"
+    elapsed=0
+
+    baseline_max_uid=${HYFE_IMAP_BASELINE_UID:-}
+    if [ -z "$baseline_max_uid" ]; then
+        baseline_max_uid=$(_otp_imap_latest_subject_uid)
+        [ -n "$baseline_max_uid" ] || baseline_max_uid=0
+        log_verbose "imap: baseline max uid=$baseline_max_uid (captured at poll start)"
+    else
+        log_verbose "imap: baseline max uid=$baseline_max_uid"
+    fi
 
     while [ "$elapsed" -lt "$HYFE_IMAP_TIMEOUT" ]; do
         # Search by subject, but only inspect UIDs newer than the baseline above.
