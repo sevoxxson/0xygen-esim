@@ -217,7 +217,7 @@ _otp_extract() {
     # Decode common MIME encodings enough for ASCII OTPs, then drop headers.
     text=$(printf '%s' "$raw" \
         | tr -d '\r' \
-        | sed ':a; /=/{N; s/=\n//; ta;}' \
+        | sed ':a; /=$/{N; s/=\n//; ta;}' \
         | sed -e 's/=0D//g' -e 's/=0A/\n/g' -e 's/=3D/=/g' -e 's/=20/ /g' -e 's/=2E/./g' -e 's/=C2=A0/ /g' -e 's/<[^>]*>/ /g' \
         | awk 'body { print } /^$/ { body=1 }')
 
