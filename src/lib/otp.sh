@@ -124,19 +124,25 @@ _otp_extract() {
                     for (j = i + 1; j <= NF && j <= i + 12; j++) {
                         tok = clean($j)
                         if (is_candidate(tok)) {
+                            found = 1
                             print tok
                             exit
                         }
                     }
                 }
             }
-            for (i = 1; i <= NF; i++) {
-                tok = clean($i)
-                if (is_candidate(tok)) {
-                    print tok
-                    exit
+            if (fallback == "") {
+                for (i = 1; i <= NF; i++) {
+                    tok = clean($i)
+                    if (is_candidate(tok)) {
+                        fallback = tok
+                        break
+                    }
                 }
             }
+        }
+        END {
+            if (!found && fallback != "") print fallback
         }
     ')
     [ -n "$code" ] && { printf '%s' "$code"; return 0; }
