@@ -517,7 +517,7 @@ claim_flow() {
     tnc_token="$access_token"
     log_verbose "consentId=$consent_id"
 
-    otp_capture_baseline >/dev/null 2>&1 || true
+    otp_capture_baseline || die "imap baseline failed"
 
     log_info "step 2/3: sending OTP email to $EMAIL"
     api_send_otp "$EMAIL" "$NAME" >/dev/null || die "send-otp failed"

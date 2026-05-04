@@ -67,13 +67,61 @@ _otp_imap_common_prep() {
     auth_pass="$HYFE_IMAP_PASS"
 }
 
+_otp_imap_err_line() {
+    err_file="$1"
+    if [ -s "$err_file" ]; then
+        tr '\n' ' ' <"$err_file" | sed 's/[[:space:]]*$//'
+    fi
+}
+
+_otp_imap_search_all_uids() {
+    err_file="${TMPDIR:-/tmp}/hyfetrial-imap-search-err.$$"
+    if search_resp=$(curl -sS --max-time 30 \
+            --user "$auth_user:$auth_pass" \
+            --request "UID SEARCH ALL" \
+            "$base/$folder" 2>"$err_file"); then
+        rm -f "$err_file"
+        printf '%s' "$search_resp"
+        return 0
+    else
+        rc=$?
+        err=$(_otp_imap_err_line "$err_file")
+        rm -f "$err_file"
+        if [ -n "$err" ]; then
+            log_warn "imap: UID SEARCH failed (curl exit $rc): $err"
+        else
+            log_warn "imap: UID SEARCH failed (curl exit $rc)"
+        fi
+        return 1
+    fi
+}
+
 _otp_imap_latest_uid() {
-    search_resp=$(curl -s --max-time 30 \
-        --user "$auth_user:$auth_pass" \
-        --request "SEARCH ALL" \
-        "$base/$folder" 2>/dev/null) || true
+    search_resp=$(_otp_imap_search_all_uids) || return 1
     printf '%s' "$search_resp" \
         | awk '/\* SEARCH/{for (i=3;i<=NF;i++) last=$i} END{print last+0}'
+}
+
+_otp_imap_fetch_uid() {
+    uid="$1"
+    err_file="${TMPDIR:-/tmp}/hyfetrial-imap-fetch-err.$$"
+    if body=$(curl -sS --max-time 30 \
+            --user "$auth_user:$auth_pass" \
+            --url "$base/$folder;UID=$uid" 2>"$err_file"); then
+        rm -f "$err_file"
+        printf '%s' "$body"
+        return 0
+    else
+        rc=$?
+        err=$(_otp_imap_err_line "$err_file")
+        rm -f "$err_file"
+        if [ -n "$err" ]; then
+            log_warn "imap: UID FETCH $uid failed (curl exit $rc): $err"
+        else
+            log_warn "imap: UID FETCH $uid failed (curl exit $rc)"
+        fi
+        return 1
+    fi
 }
 
 _otp_message_matches() {
@@ -87,7 +135,7 @@ _otp_message_matches() {
 
 _otp_imap_capture_baseline() {
     _otp_imap_common_prep || return 1
-    HYFE_IMAP_BASELINE_UID=$(_otp_imap_latest_uid)
+    HYFE_IMAP_BASELINE_UID=$(_otp_imap_latest_uid) || return 1
     [ -n "$HYFE_IMAP_BASELINE_UID" ] || HYFE_IMAP_BASELINE_UID=0
     export HYFE_IMAP_BASELINE_UID
     log_verbose "imap: baseline max uid=$HYFE_IMAP_BASELINE_UID"
@@ -109,13 +157,9 @@ _otp_imap() {
     fi
 
     while [ "$elapsed" -lt "$HYFE_IMAP_TIMEOUT" ]; do
-        # Some Gmail/OpenWrt combinations appear not to honor SEARCH SUBJECT
-        # reliably through curl IMAP. Search all new UIDs first, then filter the
-        # fetched RFC822 message locally by subject/body before extracting OTP.
-        search_resp=$(curl -s --max-time 30 \
-            --user "$auth_user:$auth_pass" \
-            --request "SEARCH ALL" \
-            "$base/$folder" 2>/dev/null) || true
+        # Curl fetches `;UID=...` with UID FETCH, so the search must also
+        # return UIDs rather than mailbox sequence numbers.
+        search_resp=$(_otp_imap_search_all_uids) || return 1
         ids=$(printf '%s' "$search_resp" \
             | awk -v min_uid="$baseline_max_uid" '/\* SEARCH/{for (i=3;i<=NF;i++) if (($i+0) > min_uid) print $i}')
         if [ -n "$ids" ]; then
@@ -124,9 +168,7 @@ _otp_imap() {
                 | awk '{a[NR]=$0} END{for (i=NR;i>=1;i--) print a[i]}')
             for uid in $recent_ids; do
                 log_verbose "imap: candidate uid=$uid"
-                body=$(curl -s --max-time 30 \
-                    --user "$auth_user:$auth_pass" \
-                    --url "$base/$folder;UID=$uid" 2>/dev/null) || true
+                body=$(_otp_imap_fetch_uid "$uid") || continue
                 if [ -n "$body" ]; then
                     if ! _otp_message_matches "$body"; then
                         log_verbose "imap: uid=$uid skipped (subject mismatch)"
