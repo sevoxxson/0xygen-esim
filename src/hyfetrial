@@ -70,7 +70,7 @@ OPTIONAL:
     --pages N              How many pages to scan when listing (default 1)
 
 CAPTCHA:
-    --captcha-mode MODE    manual | 2captcha | anticaptcha | capsolver
+    --captcha-mode MODE    manual | 2captcha | anticaptcha | capsolver | nextcaptcha
                            (default: manual; manual prompts you to paste a
                             grecaptcha token from a real browser)
     --captcha-key KEY      API key for paid solvers
@@ -389,10 +389,10 @@ interactive_prompt() {
         _prompt PATTERN "Pola digit nomor cantik (kosongkan untuk random)" "" 0 1
     fi
     if [ "$HYFE_CAPTCHA_MODE" = "manual" ] || [ -z "${HYFE_CAPTCHA_MODE:-}" ]; then
-        _prompt _ans "Mode captcha: manual / 2captcha / anticaptcha / capsolver" "manual"
+        _prompt _ans "Mode captcha: manual / 2captcha / anticaptcha / capsolver / nextcaptcha" "manual"
         HYFE_CAPTCHA_MODE="$_ans"
         case "$HYFE_CAPTCHA_MODE" in
-            2captcha|anticaptcha|capsolver)
+            2captcha|anticaptcha|capsolver|nextcaptcha)
                 if [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
                     _prompt HYFE_CAPTCHA_KEY "API key untuk $HYFE_CAPTCHA_MODE" "" 1
                 fi

@@ -9,9 +9,11 @@
 # ---------- captcha ----------
 # Pilih salah satu mode:
 #   manual       - default; CLI minta token grecaptcha hasil paste manual
-#   2captcha     - https://2captcha.com/
-#   anticaptcha  - https://anti-captcha.com/
-#   capsolver    - https://capsolver.com/
+#   2captcha     - https://2captcha.com/        (min top-up $1, $1-2.99/1000)
+#   anticaptcha  - https://anti-captcha.com/    (min top-up $5, ~$2/1000)
+#   capsolver    - https://capsolver.com/       (min top-up $5, $1/1000)
+#   nextcaptcha  - https://nextcaptcha.com/     (FREE TRIAL via Telegram bot
+#                                                @nextcaptcha_bot, then $0.6/1000)
 #HYFE_CAPTCHA_MODE=manual
 #HYFE_CAPTCHA_KEY=
 #HYFE_CAPTCHA_TIMEOUT=180

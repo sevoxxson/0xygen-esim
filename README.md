@@ -48,7 +48,7 @@ Nomor WhatsApp (tanpa +62/0): 81234567890
 Email (yang akan menerima OTP): saya@gmail.com
 EID eSIM (32 digit): 12345678901234567890123456789012
 Pola digit nomor cantik (kosongkan untuk random): 8888
-Mode captcha: manual / 2captcha / anticaptcha / capsolver [manual]:
+Mode captcha: manual / 2captcha / anticaptcha / capsolver / nextcaptcha [manual]:
 Mode OTP: manual / imap [manual]:
 ```
 
@@ -136,9 +136,10 @@ Pastikan `curl` dan `jq` terpasang.
 | Mode          | Cara kerja                                         | Biaya    |
 | ------------- | -------------------------------------------------- | -------- |
 | `manual`      | Paste token `grecaptcha.getResponse()` (default)   | gratis   |
-| `2captcha`    | Solve via API <https://2captcha.com/>              | berbayar |
-| `anticaptcha` | Solve via API <https://anti-captcha.com/>          | berbayar |
-| `capsolver`   | Solve via API <https://capsolver.com/>             | berbayar |
+| `2captcha`    | Solve via API <https://2captcha.com/>              | min $1 (~Rp16K), $1-2.99/1000 |
+| `anticaptcha` | Solve via API <https://anti-captcha.com/>          | min $5, ~$2/1000 |
+| `capsolver`   | Solve via API <https://capsolver.com/>             | min $5, $1/1000 |
+| `nextcaptcha` | Solve via API <https://nextcaptcha.com/>           | **free trial** via Telegram bot [@nextcaptcha_bot](https://t.me/nextcaptcha_bot), then $0.6/1000 |
 
 Contoh dengan 2captcha:
 

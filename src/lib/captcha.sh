@@ -6,6 +6,9 @@
 #   2captcha      - https://2captcha.com/        (requires HYFE_CAPTCHA_KEY)
 #   anticaptcha   - https://anti-captcha.com/    (requires HYFE_CAPTCHA_KEY)
 #   capsolver     - https://capsolver.com/       (requires HYFE_CAPTCHA_KEY)
+#   nextcaptcha   - https://nextcaptcha.com/     (requires HYFE_CAPTCHA_KEY)
+#                   * supports a free trial via Telegram bot @nextcaptcha_bot
+#                   * cheapest paid tier ($0.6/1000 reCAPTCHA v2 Enterprise)
 #
 # Usage:
 #   token=$(captcha_solve) || exit 1
@@ -20,6 +23,7 @@ captcha_solve() {
         2captcha)      _captcha_2captcha ;;
         anticaptcha)   _captcha_anticaptcha ;;
         capsolver)     _captcha_capsolver ;;
+        nextcaptcha)   _captcha_nextcaptcha ;;
         *)
             log_error "unknown captcha mode: $HYFE_CAPTCHA_MODE"
             return 1
@@ -208,5 +212,75 @@ _captcha_capsolver() {
         esac
     done
     log_error "capsolver: timeout after ${HYFE_CAPTCHA_TIMEOUT}s"
+    return 1
+}
+
+# NextCaptcha API: https://nextcaptcha.com/en/apidocs/recaptcha-v2-enterprise
+#
+# Wire-compatible with the Anti-Captcha-style createTask/getTaskResult flow:
+# the request body, the `RecaptchaV2EnterpriseTaskProxyless` task type, and
+# the response shape (`status`, `solution.gRecaptchaResponse`,
+# `errorDescription`) are all identical. Only the host differs, so this is
+# essentially a clone of `_captcha_anticaptcha` pointed at
+# api.nextcaptcha.com.
+_captcha_nextcaptcha() {
+    [ -n "$HYFE_CAPTCHA_KEY" ] || { log_error "nextcaptcha: HYFE_CAPTCHA_KEY required"; return 1; }
+    log_info "nextcaptcha: creating RecaptchaV2EnterpriseTaskProxyless"
+    create=$(curl -s --max-time 30 \
+        -H 'Content-Type: application/json' \
+        --data "$(jq -nc \
+            --arg key "$HYFE_CAPTCHA_KEY" \
+            --arg sitekey "$HYFE_RECAPTCHA_SITEKEY" \
+            --arg url "$HYFE_RECAPTCHA_PAGE_URL" \
+            '{
+                clientKey:$key,
+                task:{
+                    type:"RecaptchaV2EnterpriseTaskProxyless",
+                    websiteURL:$url,
+                    websiteKey:$sitekey
+                }
+            }')" \
+        "https://api.nextcaptcha.com/createTask")
+    log_debug "nextcaptcha create: $create"
+    err=$(printf '%s' "$create" | jq -r '.errorId // 0')
+    if [ "$err" != "0" ]; then
+        log_error "nextcaptcha: $(printf '%s' "$create" | jq -r '.errorDescription // empty')"
+        return 1
+    fi
+    task_id=$(printf '%s' "$create" | jq -r '.taskId // empty')
+    [ -n "$task_id" ] || { log_error "nextcaptcha: no taskId: $create"; return 1; }
+    log_info "nextcaptcha: task id=$task_id, polling..."
+    elapsed=0
+    while [ "$elapsed" -lt "$HYFE_CAPTCHA_TIMEOUT" ]; do
+        sleep 5
+        elapsed=$((elapsed + 5))
+        # NextCaptcha returns a string UUID `taskId` (e.g.
+        # 01914985-e066-7080-9cf4-730aa55e0292), so we must use --arg (which
+        # quotes the value) rather than --argjson (which would try to parse
+        # the UUID as raw JSON and fail).
+        poll=$(curl -s --max-time 15 \
+            -H 'Content-Type: application/json' \
+            --data "$(jq -nc \
+                --arg key "$HYFE_CAPTCHA_KEY" \
+                --arg tid "$task_id" \
+                '{clientKey:$key, taskId:$tid}')" \
+            "https://api.nextcaptcha.com/getTaskResult")
+        status=$(printf '%s' "$poll" | jq -r '.status // empty')
+        case "$status" in
+            ready)
+                printf '%s' "$poll" | jq -r '.solution.gRecaptchaResponse'
+                return 0
+                ;;
+            processing) ;;
+            *)
+                err=$(printf '%s' "$poll" | jq -r '.errorDescription // empty')
+                if [ -n "$err" ]; then
+                    log_error "nextcaptcha: $err"
+                    return 1
+                fi
+                ;;
+        esac
+    done
+    log_error "nextcaptcha: timeout after ${HYFE_CAPTCHA_TIMEOUT}s"
     return 1
 }
