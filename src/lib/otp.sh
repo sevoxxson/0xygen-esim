@@ -214,10 +214,12 @@ _otp_imap() {
 # back to any standalone 6-char uppercase/digit token.
 _otp_extract() {
     raw="$1"
-    # Strip MIME boundaries / decode quoted-printable enough for ASCII OTPs.
+    # Decode common MIME encodings enough for ASCII OTPs, then drop headers.
     text=$(printf '%s' "$raw" \
         | tr -d '\r' \
-        | sed -e 's/=3D/=/g' -e 's/=20/ /g' -e 's/=2E/./g')
+        | sed ':a; /=$/{N; s/=\n//; ta;}' \
+        | sed -e 's/=0D//g' -e 's/=0A/\n/g' -e 's/=3D/=/g' -e 's/=20/ /g' -e 's/=2E/./g' -e 's/=C2=A0/ /g' -e 's/<[^>]*>/ /g' \
+        | awk 'body { print } /^$/ { body=1 }')
 
     code=$(printf '%s' "$text" | awk '
         function clean(tok) {
@@ -228,7 +230,7 @@ _otp_extract() {
         function is_candidate(tok) {
             if (length(tok) != 6) return 0
             if (tok !~ /^[[:alnum:]]+$/) return 0
-            if (tok ~ /[0-9]/) return 1
+            if (tok ~ /[0-9]/ && tok ~ /[[:alpha:]]/) return 1
             return tok == toupper(tok)
         }
         {
