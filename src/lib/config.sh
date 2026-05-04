@@ -212,6 +212,17 @@ wizard_captcha_config() {
         if [ -n "$_new_key" ]; then
             config_set "$_f" HYFE_CAPTCHA_KEY "$_new_key"
         fi
+        # After saving, re-read the file to confirm a key is actually present.
+        # Mode != manual without a key will fail at solve time, so warn early.
+        _check_key=$(config_get "$_f" HYFE_CAPTCHA_KEY)
+        if [ -z "$_check_key" ]; then
+            log_warn "HYFE_CAPTCHA_KEY belum diisi - mode '$_new_mode' butuh API key"
+            log_warn "jalankan 'hyfetrial --captcha-config' lagi untuk isi API key"
+        fi
+    else
+        # Switching back to manual: HYFE_CAPTCHA_KEY no longer required, but
+        # leave it in place so the user can switch back without re-entering.
+        :
     fi
 
     _cur_to=$(config_get "$_f" HYFE_CAPTCHA_TIMEOUT)
@@ -261,7 +272,16 @@ wizard_imap_config() {
     fi
 
     log_info "imap config tersimpan di $_f"
-    log_info "tip: jalankan 'hyfetrial --email-config' untuk daftarkan email + App Password"
+
+    # Pakai IMAP tanpa email akun = nanti gagal di OTP polling. Warn jelas.
+    _emails_n=$(_config_email_count "$_f")
+    _has_legacy_user=$(config_get "$_f" HYFE_IMAP_USER)
+    if [ "$_emails_n" = 0 ] && [ -z "$_has_legacy_user" ]; then
+        log_warn "belum ada email akun terdaftar (HYFE_EMAIL_N kosong)"
+        log_warn "OTP IMAP butuh login Gmail - jalankan 'hyfetrial --email-config'"
+    else
+        log_info "tip: 'hyfetrial --email-config' untuk tambah email + App Password"
+    fi
 }
 
 # wizard_email_config FILE - manage HYFE_EMAIL_N + HYFE_IMAP_PASS_N entries.
@@ -301,17 +321,27 @@ wizard_email_config() {
         case "$_act" in
             a|A)
                 _new_idx=$((_n + 1))
+                _e=""
+                _p=""
                 _prompt _e "Email akun ke-$_new_idx (mis. saya@gmail.com)"
-                _prompt _p "App Password Gmail untuk $_e" "" 1
+                # App Password optional so user dapat menyimpan akun dulu
+                # dan mengisi password belakangan via 'e/edit' (kita warn
+                # eksplisit di bawah kalau dilewat).
+                _prompt _p "App Password Gmail untuk $_e (kosongkan = isi nanti)" "" 1 1
                 config_set "$_f" "HYFE_EMAIL_$_new_idx" "$_e"
                 if [ -n "$_p" ]; then
                     config_set "$_f" "HYFE_IMAP_PASS_$_new_idx" "$_p"
+                else
+                    log_warn "App Password kosong - akun ini tidak bisa dipakai untuk OTP IMAP otomatis"
+                    log_warn "isi nanti via 'hyfetrial --email-config' -> e) edit"
                 fi
                 log_info "email $_e disimpan sebagai HYFE_EMAIL_$_new_idx"
                 ;;
             e|E)
                 [ "$_n" -gt 0 ] || { printf '  belum ada email\n' >&2; continue; }
                 _idx=""
+                _e=""
+                _p=""
                 _prompt _idx "Index email yang mau diedit (1..$_n)"
                 if ! printf '%s' "$_idx" | grep -Eq '^[0-9]+$' \
                    || [ "$_idx" -lt 1 ] || [ "$_idx" -gt "$_n" ]; then
@@ -324,6 +354,10 @@ wizard_email_config() {
                 config_set "$_f" "HYFE_EMAIL_$_idx" "$_e"
                 if [ -n "$_p" ]; then
                     config_set "$_f" "HYFE_IMAP_PASS_$_idx" "$_p"
+                fi
+                _check_p=$(config_get "$_f" "HYFE_IMAP_PASS_$_idx")
+                if [ -z "$_check_p" ]; then
+                    log_warn "App Password untuk akun $_idx masih kosong"
                 fi
                 log_info "email index $_idx diperbarui"
                 ;;

@@ -308,41 +308,9 @@ export HYFE_VERBOSE HYFE_DEBUG \
     HYFE_IMAP_FOLDER HYFE_IMAP_SUBJECT HYFE_IMAP_TIMEOUT \
     HYFE_UA HYFE_BASE HYFE_AUTH_URL
 
-# ---------- subcommand dispatch ----------
-# Config-management subcommands only need shell builtins + awk + sed; no
-# curl/jq required. Run them BEFORE require_cmd so the user can configure
-# the tool even on a freshly installed box where deps aren't ready yet.
-if [ "$SHOW_CONFIG" = 1 ]; then
-    _path="${CONFIG_FILE:-$(config_default_path)}"
-    if [ ! -f "$_path" ]; then
-        printf 'hyfetrial: config %s tidak ada. Buat dengan: hyfetrial --new-config\n' "$_path" >&2
-        exit 2
-    fi
-    config_show "$_path"
-    exit 0
-fi
-
-if [ -n "$WIZARD_MODE" ]; then
-    if [ ! -t 0 ]; then
-        die "wizard config butuh terminal (stdin bukan TTY)"
-    fi
-    _path="${CONFIG_FILE:-$(config_default_path)}"
-    case "$WIZARD_MODE" in
-        new)     wizard_new_config "$_path" ;;
-        captcha) wizard_captcha_config "$_path" ;;
-        imap)    wizard_imap_config "$_path" ;;
-        email)   wizard_email_config "$_path" ;;
-    esac
-    exit 0
-fi
-
-require_cmd curl jq
-
-# Cookie jar: per-invocation tmp file.
-HYFE_COOKIES="${HYFE_COOKIES:-${TMPDIR:-/tmp}/hyfetrial-cookies.$$}"
-export HYFE_COOKIES
-trap 'rm -f "$HYFE_COOKIES"' EXIT INT TERM
-: > "$HYFE_COOKIES"
+# Cookie jar setup is deferred until after the subcommand dispatch at the
+# bottom of the file: config-management subcommands don't need curl, jq,
+# or a cookie jar.
 
 # ---------- input validation ----------
 
@@ -535,6 +503,12 @@ _prompt_email() {
                 HYFE_IMAP_PASS="$_pass_val"
                 export HYFE_IMAP_PASS
                 log_verbose "imap: password loaded from HYFE_IMAP_PASS_$_ans"
+            else
+                # Slot exists but App Password is missing. Don't fail here
+                # because OTP_MODE might be `manual`, but if the user later
+                # switches to imap they'll get a confusing error. Warn now.
+                log_warn "HYFE_IMAP_PASS_$_ans belum di-set untuk $EMAIL"
+                log_warn "kalau pakai OTP IMAP, tambahkan via 'hyfetrial --email-config' (e/edit)"
             fi
             return 0
         elif [ "$_ans" = "$_manual_idx" ]; then
@@ -760,8 +734,36 @@ confirm() {
 
 # ---------- main flow ----------
 
+# precheck_config - sanity-check that the loaded config has all the
+# pieces we need for the chosen modes. Emits warnings (not errors) so
+# the user can see what's missing before the actual claim attempt makes
+# them wait through OTP timeouts or captcha errors.
+precheck_config() {
+    if [ "${HYFE_CAPTCHA_MODE:-manual}" != "manual" ] \
+       && [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
+        log_warn "HYFE_CAPTCHA_MODE=$HYFE_CAPTCHA_MODE tapi HYFE_CAPTCHA_KEY kosong"
+        log_warn "captcha pasti gagal - jalankan 'hyfetrial --captcha-config'"
+    fi
+    if [ "${HYFE_OTP_MODE:-manual}" = "imap" ]; then
+        if [ -z "${HYFE_IMAP_URL:-}" ]; then
+            log_warn "HYFE_OTP_MODE=imap tapi HYFE_IMAP_URL kosong"
+            log_warn "jalankan 'hyfetrial --imap-config' untuk isi setting IMAP"
+        fi
+        if [ -z "${HYFE_IMAP_USER:-}" ] && [ -z "${HYFE_EMAIL_1:-}" ]; then
+            log_warn "HYFE_OTP_MODE=imap tapi belum ada email akun (HYFE_EMAIL_N kosong)"
+            log_warn "jalankan 'hyfetrial --email-config' untuk daftarkan email"
+        fi
+        if [ -n "${HYFE_IMAP_USER:-}" ] && [ -z "${HYFE_IMAP_PASS:-}" ]; then
+            log_warn "HYFE_IMAP_USER=$HYFE_IMAP_USER tapi HYFE_IMAP_PASS kosong"
+            log_warn "OTP IMAP butuh App Password Gmail untuk login"
+        fi
+    fi
+}
+
 claim_flow() {
     validate_inputs
+
+    precheck_config
 
     pick_msisdn
 
@@ -815,6 +817,44 @@ claim_flow() {
     printf '%s\n' "$resp" | jq . >&2 2>/dev/null || printf '%s\n' "$resp" >&2
     return 1
 }
+
+# ---------- subcommand dispatch ----------
+# Config-management subcommands short-circuit the normal claim flow so
+# the user can manage their config file without going through the full
+# eSIM submit pipeline. They run BEFORE require_cmd / cookie jar setup
+# so a freshly installed box without curl/jq can still configure things.
+if [ "$SHOW_CONFIG" = 1 ]; then
+    _path="${CONFIG_FILE:-$(config_default_path)}"
+    if [ ! -f "$_path" ]; then
+        printf 'hyfetrial: config %s tidak ada. Buat dengan: hyfetrial --new-config\n' "$_path" >&2
+        exit 2
+    fi
+    config_show "$_path"
+    exit 0
+fi
+
+if [ -n "$WIZARD_MODE" ]; then
+    if [ ! -t 0 ]; then
+        die "wizard config butuh terminal (stdin bukan TTY)"
+    fi
+    _path="${CONFIG_FILE:-$(config_default_path)}"
+    case "$WIZARD_MODE" in
+        new)     wizard_new_config "$_path" ;;
+        captcha) wizard_captcha_config "$_path" ;;
+        imap)    wizard_imap_config "$_path" ;;
+        email)   wizard_email_config "$_path" ;;
+    esac
+    exit 0
+fi
+
+# Claim flow needs network tooling. Verify deps + create cookie jar now,
+# after the config wizards above had a chance to run without them.
+require_cmd curl jq
+
+HYFE_COOKIES="${HYFE_COOKIES:-${TMPDIR:-/tmp}/hyfetrial-cookies.$$}"
+export HYFE_COOKIES
+trap 'rm -f "$HYFE_COOKIES"' EXIT INT TERM
+: > "$HYFE_COOKIES"
 
 if [ "$LIST_ONLY" = 1 ]; then
     list_numbers_mode
