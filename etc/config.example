@@ -1,0 +1,36 @@
+# /etc/hyfetrial/config - example config sourced by hyfetrial --config
+#
+# Copy ke /etc/hyfetrial/config dan isi sesuai kebutuhan, lalu jalankan:
+#   hyfetrial --config /etc/hyfetrial/config \
+#             --name "Andi P" --whatsapp 81234567890 \
+#             --email me@example.com \
+#             --eid 12345678901234567890123456789012
+
+# ---------- captcha ----------
+# Pilih salah satu mode:
+#   manual       - default; CLI minta token grecaptcha hasil paste manual
+#   2captcha     - https://2captcha.com/
+#   anticaptcha  - https://anti-captcha.com/
+#   capsolver    - https://capsolver.com/
+#HYFE_CAPTCHA_MODE=manual
+#HYFE_CAPTCHA_KEY=
+#HYFE_CAPTCHA_TIMEOUT=180
+
+# ---------- otp ----------
+# Pilih salah satu mode:
+#   manual       - default; CLI minta kode 6 digit hasil ketik manual
+#   imap         - polling IMAP untuk auto-baca kode
+#HYFE_OTP_MODE=manual
+
+# Jika HYFE_OTP_MODE=imap, isi setting di bawah:
+#HYFE_IMAP_URL=imaps://imap.gmail.com:993
+#HYFE_IMAP_USER=me@gmail.com
+#HYFE_IMAP_PASS=app-password-anda
+#HYFE_IMAP_FOLDER=INBOX
+#HYFE_IMAP_SUBJECT=Kode OTP | eSIM Trial HYFE
+#HYFE_IMAP_TIMEOUT=180
+
+# ---------- misc ----------
+#HYFE_VERBOSE=0
+#HYFE_DEBUG=0
+#HYFE_UA=Mozilla/5.0 (Linux; OpenWrt) ...

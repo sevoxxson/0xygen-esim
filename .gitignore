@@ -1,0 +1,13 @@
+# Local cookie jars / debug dumps
+hyfetrial-cookies.*
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# OpenWrt build artifacts
+openwrt/build_dir/
+openwrt/staging_dir/
+*.ipk
