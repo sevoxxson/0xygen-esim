@@ -67,18 +67,27 @@ _otp_imap_common_prep() {
     auth_pass="$HYFE_IMAP_PASS"
 }
 
-_otp_imap_latest_subject_uid() {
+_otp_imap_latest_uid() {
     search_resp=$(curl -s --max-time 30 \
         --user "$auth_user:$auth_pass" \
-        --request "SEARCH SUBJECT \"$HYFE_IMAP_SUBJECT\"" \
+        --request "SEARCH ALL" \
         "$base/$folder" 2>/dev/null) || true
     printf '%s' "$search_resp" \
         | awk '/\* SEARCH/{for (i=3;i<=NF;i++) last=$i} END{print last+0}'
 }
 
+_otp_message_matches() {
+    raw="$1"
+    printf '%s' "$raw" | awk -v subj="$HYFE_IMAP_SUBJECT" '
+        BEGIN { needle=tolower(subj) }
+        { if (index(tolower($0), needle) > 0) { found=1; exit } }
+        END { exit(found ? 0 : 1) }
+    '
+}
+
 _otp_imap_capture_baseline() {
     _otp_imap_common_prep || return 1
-    HYFE_IMAP_BASELINE_UID=$(_otp_imap_latest_subject_uid)
+    HYFE_IMAP_BASELINE_UID=$(_otp_imap_latest_uid)
     [ -n "$HYFE_IMAP_BASELINE_UID" ] || HYFE_IMAP_BASELINE_UID=0
     export HYFE_IMAP_BASELINE_UID
     log_verbose "imap: baseline max uid=$HYFE_IMAP_BASELINE_UID"
@@ -92,7 +101,7 @@ _otp_imap() {
 
     baseline_max_uid=${HYFE_IMAP_BASELINE_UID:-}
     if [ -z "$baseline_max_uid" ]; then
-        baseline_max_uid=$(_otp_imap_latest_subject_uid)
+        baseline_max_uid=$(_otp_imap_latest_uid)
         [ -n "$baseline_max_uid" ] || baseline_max_uid=0
         log_verbose "imap: baseline max uid=$baseline_max_uid (captured at poll start)"
     else
@@ -100,17 +109,18 @@ _otp_imap() {
     fi
 
     while [ "$elapsed" -lt "$HYFE_IMAP_TIMEOUT" ]; do
-        # Search by subject, but only inspect UIDs newer than the baseline above.
+        # Some Gmail/OpenWrt combinations appear not to honor SEARCH SUBJECT
+        # reliably through curl IMAP. Search all new UIDs first, then filter the
+        # fetched RFC822 message locally by subject/body before extracting OTP.
         search_resp=$(curl -s --max-time 30 \
             --user "$auth_user:$auth_pass" \
-            --request "SEARCH SUBJECT \"$HYFE_IMAP_SUBJECT\"" \
+            --request "SEARCH ALL" \
             "$base/$folder" 2>/dev/null) || true
-        # Response looks like: "* SEARCH 12 13 14"
         ids=$(printf '%s' "$search_resp" \
             | awk -v min_uid="$baseline_max_uid" '/\* SEARCH/{for (i=3;i<=NF;i++) if (($i+0) > min_uid) print $i}')
         if [ -n "$ids" ]; then
             recent_ids=$(printf '%s\n' "$ids" \
-                | tail -n 10 \
+                | tail -n 15 \
                 | awk '{a[NR]=$0} END{for (i=NR;i>=1;i--) print a[i]}')
             for uid in $recent_ids; do
                 log_verbose "imap: candidate uid=$uid"
@@ -118,6 +128,10 @@ _otp_imap() {
                     --user "$auth_user:$auth_pass" \
                     --url "$base/$folder;UID=$uid" 2>/dev/null) || true
                 if [ -n "$body" ]; then
+                    if ! _otp_message_matches "$body"; then
+                        log_verbose "imap: uid=$uid skipped (subject mismatch)"
+                        continue
+                    fi
                     code=$(_otp_extract "$body")
                     if [ -n "$code" ]; then
                         log_info "imap: extracted OTP code"
@@ -128,7 +142,7 @@ _otp_imap() {
                 fi
             done
         else
-            log_verbose "imap: no new subject matches yet"
+            log_verbose "imap: no new mailbox UIDs yet"
         fi
         sleep 5
         elapsed=$((elapsed + 5))
