@@ -109,7 +109,7 @@ _otp_imap_search_all_uids() {
 _otp_imap_latest_uid() {
     search_resp=$(_otp_imap_search_all_uids) || return 1
     printf '%s' "$search_resp" \
-        | awk '/\* SEARCH/{for (i=3;i<=NF;i++) last=$i} END{print last+0}'
+        | awk '/\* SEARCH/{for (i=3;i<=NF;i++) { gsub(/[^0-9]/, "", $i); if ($i != "") last=$i }} END{print last+0}'
 }
 
 _otp_imap_fetch_uid() {
@@ -175,7 +175,7 @@ _otp_imap() {
             continue
         fi
         ids=$(printf '%s' "$search_resp" \
-            | awk -v min_uid="$baseline_max_uid" '/\* SEARCH/{for (i=3;i<=NF;i++) if (($i+0) > min_uid) print $i}')
+            | awk -v min_uid="$baseline_max_uid" '/\* SEARCH/{for (i=3;i<=NF;i++) { gsub(/[^0-9]/, "", $i); if (($i+0) > min_uid) print $i+0 }}')
         if [ -n "$ids" ]; then
             recent_ids=$(printf '%s\n' "$ids" \
                 | tail -n 15 \
