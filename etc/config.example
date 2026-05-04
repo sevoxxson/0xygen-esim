@@ -22,6 +22,8 @@
 # Pilih salah satu mode:
 #   manual       - default; CLI minta OTP 6 karakter hasil ketik manual
 #   imap         - polling IMAP untuk auto-baca OTP
+#                  butuh curl -V Protocols berisi "imap imaps"
+#                  OpenWrt: build curl/libcurl dengan CONFIG_LIBCURL_IMAP=y
 #HYFE_OTP_MODE=manual
 
 # Jika HYFE_OTP_MODE=imap, isi setting di bawah:

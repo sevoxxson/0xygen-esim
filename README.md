@@ -165,6 +165,22 @@ hyfetrial --otp-mode imap \
           --name "..." --whatsapp ... --email me@gmail.com --eid ...
 ```
 
+OpenWrt note: `imap` mode requires curl/libcurl with IMAP enabled. Check with:
+
+```sh
+curl -V
+```
+
+The `Protocols:` line must contain `imap imaps`. Some OpenWrt 25/APK firmware
+builds ship curl without those protocols and will fail with:
+
+```text
+curl: (1) Protocol "imaps" disabled
+```
+
+For those images, either use `--otp-mode manual` or rebuild/install curl/libcurl
+with OpenWrt config `CONFIG_LIBCURL_IMAP=y` before using IMAP OTP automation.
+
 ## Config file
 
 Daripada mengulang flag panjang, simpan setting captcha/IMAP di file:
