@@ -234,11 +234,14 @@ _otp_extract() {
             return tok == toupper(tok)
         }
         {
-            for (i = 1; i <= NF; i++) {
-                key = toupper(clean($i))
+            line = $0
+            gsub(/[^[:alnum:]]+/, " ", line)
+            n = split(line, fields, /[[:space:]]+/)
+            for (i = 1; i <= n; i++) {
+                key = toupper(clean(fields[i]))
                 if (key == "OTP" || key == "KODE" || key == "CODE") {
-                    for (j = i + 1; j <= NF && j <= i + 12; j++) {
-                        tok = clean($j)
+                    for (j = i + 1; j <= n && j <= i + 30; j++) {
+                        tok = clean(fields[j])
                         if (is_candidate(tok)) {
                             found = 1
                             print tok
@@ -248,8 +251,8 @@ _otp_extract() {
                 }
             }
             if (fallback == "") {
-                for (i = 1; i <= NF; i++) {
-                    tok = clean($i)
+                for (i = 1; i <= n; i++) {
+                    tok = clean(fields[i])
                     if (is_candidate(tok)) {
                         fallback = tok
                         break
