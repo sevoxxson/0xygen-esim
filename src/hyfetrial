@@ -135,21 +135,24 @@ CONFIG_FILE=""
 # Pre-scan args for --config so we can source the config BEFORE the main parse
 # loop. That way subsequent CLI flags reliably override config-file values
 # (which is the documented "CLI wins" precedence).
-_argv="$*"
-_prev=""
-for _arg in $_argv; do
-    if [ "$_prev" = "--config" ]; then
+#
+# `for _arg do` (without `in ...`) iterates over the positional parameters
+# directly, preserving values containing whitespace. Using `for _arg in $*`
+# would re-split on $IFS and fragment paths like `--config "/etc/has space".
+_found_cfg_flag=0
+for _arg do
+    if [ "$_found_cfg_flag" = 1 ]; then
         CONFIG_FILE="$_arg"
         break
     fi
-    _prev="$_arg"
+    [ "$_arg" = "--config" ] && _found_cfg_flag=1
 done
 if [ -n "$CONFIG_FILE" ]; then
     [ -r "$CONFIG_FILE" ] || { printf 'hyfetrial: config not readable: %s\n' "$CONFIG_FILE" >&2; exit 2; }
     # shellcheck disable=SC1090
     . "$CONFIG_FILE"
 fi
-unset _argv _prev _arg
+unset _found_cfg_flag _arg
 
 # Parse args (POSIX manual loop)
 while [ $# -gt 0 ]; do
