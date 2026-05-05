@@ -41,7 +41,7 @@ fi
 # shellcheck source=src/lib/otp.sh
 . "$LIB_DIR/otp.sh"
 
-VERSION="0.1.0"
+VERSION="0.1.1"
 
 usage() {
     cat <<EOF
@@ -343,36 +343,36 @@ list_numbers_mode() {
     done
 }
 
-# Pick the first available MSISDN; if --pick-msisdn was given, find that one
-# in the listing and use its encrypt blob.
+# Pick an available MSISDN; if --pick-msisdn was given, find that one in the
+# listing and use its encrypt blob. In interactive mode, show a numbered menu
+# of the available numbers so the user can choose one explicitly.
 pick_msisdn() {
     api_auth
     api_session
     url_page=1
     body_page=$(_msisdn_body_page)
     body=$(api_find_msisdn "$url_page" "$body_page" "$PATTERN") || return 1
+    lines=$(printf '%s' "$body" | jq -r '
+        .result.data.noMsisdn[]
+        | "\(.msisdn)\t\(.encrypt)"
+    ')
     if [ -n "$PICK_MSISDN" ]; then
         target="$PICK_MSISDN"
         # tolerate both 0817-... and raw digits
         target_clean=$(printf '%s' "$target" | tr -d ' -')
-        line=$(printf '%s' "$body" \
-            | jq -r --arg t "$target_clean" \
-                '.result.data.noMsisdn[] | select(.msisdn == $t) | "\(.msisdn)\t\(.encrypt)"' \
+        line=$(printf '%s\n' "$lines" \
+            | awk -F '\t' -v t="$target_clean" '$1 == t { print; exit }' \
             | head -n1)
         if [ -z "$line" ]; then
             die "pick-msisdn: $target not found on page $url_page (try --list-numbers --pattern ...)"
         fi
+    elif [ "${INTERACTIVE:-0}" = 1 ]; then
+        line=$(_prompt_msisdn_choice "$lines" "$url_page" "$body_page")
     else
         # Guard with `if length == 0 then empty` so an empty array yields ""
         # instead of jq's default "null\tnull" output (which would otherwise
         # slip past the `[ "$line" = "null" ]` check below).
-        line=$(printf '%s' "$body" \
-            | jq -r '
-                if (.result.data.noMsisdn | length) == 0
-                then empty
-                else .result.data.noMsisdn[0]
-                     | "\(.msisdn)\t\(.encrypt)"
-                end')
+        line=$(printf '%s\n' "$lines" | awk 'NF { print; exit }')
     fi
     # Defense-in-depth: also reject "null" or "null\tnull" if jq behaviour
     # changes upstream.
@@ -385,6 +385,45 @@ pick_msisdn() {
     SELECTED_MSISDN=$(printf '%s' "$line" | cut -f1)
     SELECTED_ENCRYPT=$(printf '%s' "$line" | cut -f2)
     log_info "selected MSISDN: $SELECTED_MSISDN"
+}
+
+_prompt_msisdn_choice() {
+    _lines=$1
+    _url_page=$2
+    _body_page=$3
+    _count=$(printf '%s\n' "$_lines" | awk 'NF { n++ } END { print n + 0 }')
+    if [ "$_count" -le 0 ]; then
+        return 1
+    fi
+
+    while :; do
+        {
+            printf '\nNomor tersedia'
+            [ -n "$PATTERN" ] && printf ' untuk pola %s' "$PATTERN"
+            printf ' (url_page=%s body_pageNo=%s):\n' "$_url_page" "$_body_page"
+            printf '%s\n' "$_lines" | awk -F '\t' 'NF { printf "  %d) %s\n", ++n, $1 }'
+        } >&2
+        _prompt _ans "Pilih nomor" "1"
+        case "$_ans" in
+            ''|*[!0-9]*)
+                _target=$(printf '%s' "$_ans" | tr -d ' -')
+                _line=$(printf '%s\n' "$_lines" \
+                    | awk -F '\t' -v t="$_target" '$1 == t { print; exit }')
+                ;;
+            *)
+                if [ "$_ans" -ge 1 ] && [ "$_ans" -le "$_count" ]; then
+                    _line=$(printf '%s\n' "$_lines" \
+                        | awk -F '\t' -v idx="$_ans" 'NF { n++ } n == idx { print; exit }')
+                else
+                    _target=$(printf '%s' "$_ans" | tr -d ' -')
+                    _line=$(printf '%s\n' "$_lines" \
+                        | awk -F '\t' -v t="$_target" '$1 == t { print; exit }')
+                fi
+                ;;
+        esac
+        [ -n "$_line" ] && { printf '%s' "$_line"; return 0; }
+        printf '  pilihan tidak valid (1..%d atau ketik nomor lengkap)\n' "$_count" >&2
+    done
 }
 
 # _prompt_choice VARNAME "Label"
@@ -802,6 +841,7 @@ interactive_prompt() {
     if [ ! -t 0 ]; then
         die "interactive mode butuh terminal (stdin bukan TTY)"
     fi
+    INTERACTIVE=1
     {
         printf '\n=== hyfetrial: mode interaktif ===\n'
         printf '(tekan Enter untuk pakai nilai default kalau ada)\n\n'
