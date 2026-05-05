@@ -246,6 +246,48 @@ Pilih [1]:
 
 Pilih akun N → email + IMAP App Password ikut dipakai otomatis.
 
+### Multi-EID
+
+Saved EIDs disimpan sebagai `HYFE_EID_1`, `HYFE_EID_2`, ... Saat prompt
+interaktif untuk EID, hyfetrial menampilkan:
+
+```
+EID:
+  1) 89049032007208882600178661005175
+  2) 89049032007208882600178661005200
+  3) edit 3 digit terakhir
+  4) ketik manual EID baru
+Pilih [1]:
+```
+
+Opsi "edit 3 digit terakhir" prefill prefix dari saved EID dan hanya
+meminta tail baru — berguna kalau Anda klaim banyak eSIM dengan EID
+sequential. Opsi "ketik manual" akan menawarkan auto-save.
+
+### Per-provider captcha key
+
+Sejak r13, key API setiap captcha solver punya slot tersendiri jadi
+ganti mode tidak menghapus key provider lain:
+
+```sh
+HYFE_CAPTCHA_MODE=nextcaptcha
+HYFE_CAPTCHA_KEY_NEXTCAPTCHA=next_xxxxxxxxxx
+HYFE_CAPTCHA_KEY_2CAPTCHA=2c_yyyyyyy
+HYFE_CAPTCHA_KEY_ANTICAPTCHA=
+HYFE_CAPTCHA_KEY_CAPSOLVER=
+```
+
+`hyfetrial --captcha-config` memilih mode + key untuk mode yang dipilih.
+Config lama dengan `HYFE_CAPTCHA_KEY=...` (tanpa suffix) akan di-migrasi
+otomatis ke slot yang sesuai pada wizard berikutnya.
+
+### First-run bootstrap
+
+Kalau `/etc/hyfetrial/config` belum ada saat `hyfetrial` dijalankan
+secara interaktif, hyfetrial menawarkan setup wizard sebelum claim flow
+mulai. Pilih `Y` untuk setup sekali, lalu run-run berikutnya tinggal
+`hyfetrial`.
+
 CLI flag selalu menang atas nilai di config file. Override file lain via
 `--config /path/lain` atau `HYFE_DEFAULT_CONFIG=/path/lain`.
 
