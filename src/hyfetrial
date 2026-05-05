@@ -367,7 +367,11 @@ pick_msisdn() {
             die "pick-msisdn: $target not found on page $url_page (try --list-numbers --pattern ...)"
         fi
     elif [ "${INTERACTIVE:-0}" = 1 ]; then
-        line=$(_prompt_msisdn_choice "$lines" "$url_page" "$body_page") || line=""
+        if _prompt_msisdn_choice "$lines" "$url_page" "$body_page"; then
+            line="${MSISDN_CHOICE_LINE:-}"
+        else
+            line=""
+        fi
     else
         # Guard with `if length == 0 then empty` so an empty array yields ""
         # instead of jq's default "null\tnull" output (which would otherwise
@@ -391,6 +395,7 @@ _prompt_msisdn_choice() {
     _lines=$1
     _url_page=$2
     _body_page=$3
+    MSISDN_CHOICE_LINE=""
     _count=$(printf '%s\n' "$_lines" | awk 'NF { n++ } END { print n + 0 }')
     if [ "$_count" -le 0 ]; then
         return 1
@@ -421,7 +426,10 @@ _prompt_msisdn_choice() {
                 fi
                 ;;
         esac
-        [ -n "$_line" ] && { printf '%s' "$_line"; return 0; }
+        if [ -n "$_line" ]; then
+            MSISDN_CHOICE_LINE="$_line"
+            return 0
+        fi
         printf '  pilihan tidak valid (1..%d atau ketik nomor lengkap)\n' "$_count" >&2
     done
 }
