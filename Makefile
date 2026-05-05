@@ -36,12 +36,14 @@ install:
 	$(INSTALL) -m 0644 src/lib/api.sh     $(LIB_DIR)/api.sh
 	$(INSTALL) -m 0644 src/lib/captcha.sh $(LIB_DIR)/captcha.sh
 	$(INSTALL) -m 0644 src/lib/otp.sh     $(LIB_DIR)/otp.sh
+	$(INSTALL) -m 0644 src/lib/config.sh  $(LIB_DIR)/config.sh
 	$(INSTALL) -m 0644 etc/config.example $(ETC_DIR)/config.example
 
 uninstall:
 	rm -f $(BIN_DIR)/hyfetrial
 	rm -f $(LIB_DIR)/common.sh $(LIB_DIR)/api.sh \
-	      $(LIB_DIR)/captcha.sh $(LIB_DIR)/otp.sh
+	      $(LIB_DIR)/captcha.sh $(LIB_DIR)/otp.sh \
+	      $(LIB_DIR)/config.sh
 	-rmdir $(LIB_DIR) 2>/dev/null || true
 	rm -f $(ETC_DIR)/config.example
 	-rmdir $(ETC_DIR) 2>/dev/null || true
