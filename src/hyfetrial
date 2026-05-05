@@ -408,6 +408,7 @@ _prompt_email() {
     done
     if [ "$_ec" = 0 ]; then
         _prompt EMAIL "Email (yang akan menerima OTP)"
+        EMAIL_MANUAL=1
         return 0
     fi
     while :; do
@@ -436,6 +437,7 @@ _prompt_email() {
         esac
         if [ "$_ans" -ge 1 ] && [ "$_ans" -le "$_ec" ]; then
             eval "EMAIL=\$HYFE_EMAIL_$_ans"
+            EMAIL_MANUAL=0
             # IMAP login = email address; pair the matching App Password
             # so the IMAP polling step can run unattended.
             HYFE_IMAP_USER="$EMAIL"
@@ -446,6 +448,8 @@ _prompt_email() {
                 export HYFE_IMAP_PASS
                 log_verbose "imap: password loaded from HYFE_IMAP_PASS_$_ans"
             else
+                HYFE_IMAP_PASS=""
+                export HYFE_IMAP_PASS
                 # Slot exists but App Password is missing. Don't fail here
                 # because OTP_MODE might be `manual`, but if the user later
                 # switches to imap they'll get a confusing error. Warn now.
@@ -455,11 +459,36 @@ _prompt_email() {
             return 0
         elif [ "$_ans" = "$_manual_idx" ]; then
             _prompt EMAIL "Email (yang akan menerima OTP)"
+            EMAIL_MANUAL=1
             return 0
         else
             printf '  pilihan tidak valid (1..%d)\n' "$_manual_idx" >&2
         fi
     done
+}
+
+_email_matches_imap_account() {
+    _slot_pass=""
+    [ -n "$EMAIL" ] || return 1
+    if [ -n "${HYFE_IMAP_USER:-}" ] && [ "$EMAIL" = "$HYFE_IMAP_USER" ]; then
+        return 0
+    fi
+
+    _i=1
+    while :; do
+        eval "_slot_email=\${HYFE_EMAIL_$_i:-}"
+        [ -n "$_slot_email" ] || break
+        if [ "$EMAIL" = "$_slot_email" ]; then
+            HYFE_IMAP_USER="$EMAIL"
+            export HYFE_IMAP_USER
+            eval "_slot_pass=\${HYFE_IMAP_PASS_$_i:-}"
+            HYFE_IMAP_PASS="$_slot_pass"
+            export HYFE_IMAP_PASS
+            return 0
+        fi
+        _i=$((_i + 1))
+    done
+    return 1
 }
 
 _prompt_choice() {
@@ -800,7 +829,13 @@ interactive_prompt() {
             _prompt WHATSAPP "Nomor WhatsApp (tanpa +62/0)"
         fi
     fi
-    [ -z "$EMAIL" ]    && _prompt_email
+    if [ -z "$EMAIL" ]; then
+        _prompt_email
+    elif _email_matches_imap_account; then
+        EMAIL_MANUAL=0
+    else
+        EMAIL_MANUAL=1
+    fi
     [ -z "$EID" ]      && _prompt_eid
     if [ -z "$PATTERN" ] && [ -z "$PICK_MSISDN" ]; then
         _prompt PATTERN "Pola digit nomor cantik (kosongkan untuk random)" "" 0 1
@@ -822,7 +857,13 @@ interactive_prompt() {
         esac
         export HYFE_CAPTCHA_MODE HYFE_CAPTCHA_KEY
     fi
-    if [ "${HYFE_OTP_MODE:-manual}" = "manual" ]; then
+    if [ "${EMAIL_MANUAL:-0}" = 1 ]; then
+        if [ "${HYFE_OTP_MODE:-manual}" = "imap" ]; then
+            log_warn "email diketik manual; OTP diubah ke manual (bukan IMAP akun lama)"
+        fi
+        HYFE_OTP_MODE=manual
+        export HYFE_OTP_MODE
+    elif [ "${HYFE_OTP_MODE:-manual}" = "manual" ]; then
         _prompt_otp_mode
         if [ "$HYFE_OTP_MODE" = "imap" ]; then
             : "${HYFE_IMAP_URL:=imaps://imap.gmail.com:993}"
