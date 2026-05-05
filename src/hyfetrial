@@ -809,6 +809,12 @@ interactive_prompt() {
         _prompt_captcha_mode
         case "$HYFE_CAPTCHA_MODE" in
             2captcha|anticaptcha|capsolver|nextcaptcha)
+                # Re-resolve from the per-provider slot in case the user just
+                # switched the active mode and a saved HYFE_CAPTCHA_KEY_<MODE>
+                # is already in the environment from the loaded config.
+                if [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
+                    HYFE_CAPTCHA_KEY=$(captcha_resolve_key "$HYFE_CAPTCHA_MODE")
+                fi
                 if [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
                     _prompt HYFE_CAPTCHA_KEY "API key untuk $HYFE_CAPTCHA_MODE" "" 1
                 fi
