@@ -367,7 +367,7 @@ pick_msisdn() {
             die "pick-msisdn: $target not found on page $url_page (try --list-numbers --pattern ...)"
         fi
     elif [ "${INTERACTIVE:-0}" = 1 ]; then
-        line=$(_prompt_msisdn_choice "$lines" "$url_page" "$body_page")
+        line=$(_prompt_msisdn_choice "$lines" "$url_page" "$body_page") || line=""
     else
         # Guard with `if length == 0 then empty` so an empty array yields ""
         # instead of jq's default "null\tnull" output (which would otherwise
