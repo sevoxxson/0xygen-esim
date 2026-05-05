@@ -30,11 +30,11 @@ config aktif.
 ```sh
 # OpenWrt 24.10 (opkg)
 opkg update && opkg install curl jq ca-bundle
-opkg install ./hyfetrial_0.1.0-*_all.ipk
+opkg install ./hyfetrial_0.1.1-*_all.ipk
 
 # OpenWrt 25 SNAPSHOT (apk)
 apk update && apk add curl jq ca-bundles
-apk add --allow-untrusted ./hyfetrial-0.1.0-r*.apk
+apk add --allow-untrusted ./hyfetrial-0.1.1-r*.apk
 ```
 
 ### Linux biasa
