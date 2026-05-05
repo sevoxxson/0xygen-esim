@@ -45,97 +45,30 @@ VERSION="0.1.0"
 
 usage() {
     cat <<EOF
-hyfetrial $VERSION - claim a HYFE eSIM Trial number
+hyfetrial $VERSION - klaim eSIM Trial HYFE (XL Prioritas)
 
-USAGE:
-    hyfetrial                       (mode interaktif - tanya satu per satu)
-    hyfetrial -i                    (paksa mode interaktif)
-    hyfetrial [OPTIONS]             (mode non-interaktif via flag)
-    hyfetrial --list-numbers [--pattern PAT]
+PEMAKAIAN UMUM:
+    hyfetrial                  Klaim - mode interaktif (paling sering)
+    hyfetrial --list-numbers   Lihat daftar MSISDN tanpa klaim
 
-CONFIG MANAGEMENT:
-    hyfetrial --config              Lihat config aktif (password ter-mask)
-    hyfetrial --config FILE         Pakai FILE sebagai config
-    hyfetrial --new-config          Wizard setup config dari nol / partial edit
-    hyfetrial --captcha-config      Wizard khusus mode + API key captcha
-    hyfetrial --imap-config         Wizard khusus setting IMAP
-    hyfetrial --email-config        Wizard tambah/hapus akun email + App Password
+CONFIG (di /etc/hyfetrial/config, otomatis di-load):
+    hyfetrial --config         Lihat config aktif (password ter-mask)
+    hyfetrial --new-config     Setup awal / edit semua field
+    hyfetrial --captcha-config Edit mode + API key captcha
+    hyfetrial --imap-config    Edit setting IMAP (URL/user/pass/folder)
+    hyfetrial --email-config   Tambah/hapus akun email (multi-akun)
 
-Tanpa --config FILE, hyfetrial otomatis source /etc/hyfetrial/config kalau
-ada. Kalau dijalankan tanpa flag wajib (--name/--whatsapp/--email/--eid),
-hyfetrial otomatis masuk mode interaktif dan menanyakan setiap input.
+OPSI SERING DIPAKAI:
+    --pattern PAT      Filter MSISDN, mis. --pattern 1122
+    --dry-run          Coba tanpa submit ke server
+    --yes              Skip konfirmasi
+    -v                 Verbose log (kalau debug)
+    -h, --help         Tampilkan bantuan ini
+        --version      Tampilkan versi
 
-REQUIRED OPTIONS (untuk full claim flow / non-interaktif):
-    --name NAME            Full name (e.g. "Andi Pratama")
-    --whatsapp NUMBER      WhatsApp number without +62 / leading 0
-                           (e.g. 81234567890)
-    --email EMAIL          Email address (will receive the OTP)
-    --eid EID              eSIM EID, 32 digits
-                           (Settings -> About -> EID on most phones)
-
-OPTIONAL:
-    --pattern PAT          Filter MSISDN by digit pattern (e.g. 8888)
-    --pick-msisdn MSISDN   Select a specific MSISDN from the listing
-                           (must appear in --list-numbers output)
-    --list-numbers         List candidate MSISDNs and exit
-    --pages N              How many pages to scan when listing (default 1)
-
-CAPTCHA:
-    --captcha-mode MODE    manual | 2captcha | anticaptcha | capsolver | nextcaptcha
-                           (default: manual; manual prompts you to paste a
-                            grecaptcha token from a real browser)
-    --captcha-key KEY      API key for paid solvers
-    --captcha-timeout SEC  Solver timeout (default 180)
-
-OTP:
-    --otp-mode MODE        manual | imap (default: manual)
-    --imap-url URL         e.g. imaps://imap.gmail.com:993
-    --imap-user USER
-    --imap-pass PASS
-    --imap-folder FOLDER   default: INBOX
-    --imap-subject SUBJ    default: "Kode OTP | eSIM Trial HYFE"
-    --imap-timeout SEC     default: 180
-
-MISC:
-    --config [FILE]        With FILE: source FILE before parsing other
-                           options. Without FILE: print active config
-                           with passwords masked. CLI flags always
-                           override values set in FILE.
-    --show-config          Alias for --config without an argument.
-    --new-config           Run setup wizard for the active config file.
-                           Existing values shown as defaults; press Enter
-                           to keep them. Creates /etc/hyfetrial/config
-                           if it does not exist.
-    --captcha-config       Wizard khusus update mode + API key captcha.
-    --imap-config          Wizard khusus update setting IMAP.
-    --email-config         Wizard tambah/hapus akun email + App Password
-                           (HYFE_EMAIL_N + HYFE_IMAP_PASS_N).
-    -i, --interactive      Force interactive prompts even when flags are
-                           given (akan menanyakan input yang masih kosong).
-    --user-agent STRING    Override User-Agent
-    --dry-run              Print payload but do not call validateAndSubmit
-    --yes                  Skip the final confirmation prompt
-    -v, --verbose          Verbose logging
-    -d, --debug            Debug logging (includes HTTP bodies)
-    -h, --help             Show this help
-        --version          Show version
-
-ENVIRONMENT:
-    HYFE_BASE              Override API base URL
-    HYFE_AUTH_URL          Override Next.js auth URL
-    HYFE_CAPTCHA_MODE      Same as --captcha-mode
-    HYFE_CAPTCHA_KEY       Same as --captcha-key
-    HYFE_OTP_MODE          Same as --otp-mode
-    HYFE_IMAP_URL/USER/PASS/FOLDER/SUBJECT  IMAP settings
-    HYFE_VERBOSE / HYFE_DEBUG  Logging
-
-EXAMPLES:
-    hyfetrial --list-numbers --pattern 8888
-    hyfetrial --name "Andi P" --whatsapp 81234567890 \\
-              --email me@example.com \\
-              --eid 12345678901234567890123456789012 \\
-              --pattern 8888
-
+Lebih lengkap (full claim non-interaktif, OTP IMAP, captcha solver, env
+vars, dll) lihat README:
+  https://github.com/nyawitniorang/0xygen-esim#readme
 EOF
 }
 
@@ -301,6 +234,15 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+# Resolve the captcha key from the per-provider slot (HYFE_CAPTCHA_KEY_<MODE>)
+# if HYFE_CAPTCHA_KEY itself wasn't set explicitly via CLI flag or env. This
+# lets the user keep keys for multiple providers in their config and switch
+# HYFE_CAPTCHA_MODE without losing the others. Falls back to legacy
+# HYFE_CAPTCHA_KEY if no per-provider slot is filled.
+if [ -z "${HYFE_CAPTCHA_KEY:-}" ] && [ -n "${HYFE_CAPTCHA_MODE:-}" ]; then
+    HYFE_CAPTCHA_KEY=$(captcha_resolve_key "$HYFE_CAPTCHA_MODE")
+fi
 
 export HYFE_VERBOSE HYFE_DEBUG \
     HYFE_CAPTCHA_MODE HYFE_CAPTCHA_KEY HYFE_CAPTCHA_TIMEOUT \
@@ -632,6 +574,198 @@ _prompt_otp_mode() {
     done
 }
 
+# _prompt_eid - render an interactive EID prompt that knows about saved
+# slots in the active config (HYFE_EID_1, HYFE_EID_2, ...).
+#
+# Behavior:
+#   - No saved EIDs: prompt for one full EID, then offer to save it as
+#     HYFE_EID_1 in the active config file.
+#   - One or more saved EIDs:
+#       1) ... N)  pick a saved EID directly
+#       N+1)       edit the last 3 digits of a chosen saved EID
+#       N+2)       type a brand-new full EID (with optional save)
+#
+# Why "last 3 digits"? EIDs are usually sequential within a single device
+# batch, so users testing multiple eSIMs on the same phone often only need
+# to vary the trailing few digits.
+_prompt_eid() {
+    # Discover how many EID slots are configured.
+    _ec=0
+    _i=1
+    while :; do
+        eval "_v=\${HYFE_EID_$_i:-}"
+        [ -n "$_v" ] || break
+        _ec=$_i
+        _i=$((_i + 1))
+    done
+
+    if [ "$_ec" = 0 ]; then
+        {
+            printf '\nEID HARUS dari device yang akan dipakai untuk eSIM ini.\n'
+            printf '  - Cek di iPhone:  Settings > General > About > EID\n'
+            printf '  - Cek di Android: Settings > About phone > SIM status > EID\n'
+            printf '  - Random/EID milik device lain = QR eSIM tidak bisa diaktifkan.\n\n'
+        } >&2
+        _prompt EID "EID eSIM (32 digit)"
+        _eid_offer_save 1
+        return 0
+    fi
+
+    while :; do
+        {
+            printf 'EID:\n'
+            _i=1
+            while [ "$_i" -le "$_ec" ]; do
+                eval "_label=\$HYFE_EID_$_i"
+                printf '  %d) %s\n' "$_i" "$_label"
+                _i=$((_i + 1))
+            done
+            _edit_idx=$((_ec + 1))
+            _manual_idx=$((_ec + 2))
+            printf '  %d) edit 3 digit terakhir\n' "$_edit_idx"
+            printf '  %d) ketik manual EID baru\n' "$_manual_idx"
+            printf 'Pilih [1]: '
+        } >&2
+        if ! IFS= read -r _ans; then
+            printf '\nhyfetrial: input dibatalkan (EOF)\n' >&2
+            exit 130
+        fi
+        [ -z "$_ans" ] && _ans=1
+        case "$_ans" in
+            ''|*[!0-9]*)
+                printf '  pilihan tidak valid\n' >&2
+                continue
+                ;;
+        esac
+        if [ "$_ans" -ge 1 ] && [ "$_ans" -le "$_ec" ]; then
+            eval "EID=\$HYFE_EID_$_ans"
+            return 0
+        elif [ "$_ans" = "$_edit_idx" ]; then
+            _slot=1
+            if [ "$_ec" -gt 1 ]; then
+                while :; do
+                    _slot=""
+                    _prompt _slot "Edit slot mana (1..$_ec)" "1" 0 0
+                    case "$_slot" in
+                        ''|*[!0-9]*) printf '  bukan angka\n' >&2; continue ;;
+                    esac
+                    if [ "$_slot" -ge 1 ] && [ "$_slot" -le "$_ec" ]; then
+                        break
+                    fi
+                    printf '  di luar range\n' >&2
+                done
+            fi
+            _base_eid=""
+            eval "_base_eid=\$HYFE_EID_$_slot"
+            _base_pref=${_base_eid%???}
+            _base_tail=$(printf '%s' "$_base_eid" | awk '{print substr($0, length($0)-2, 3)}')
+            log_info "prefix tetap: $_base_pref"
+            while :; do
+                _new_tail=""
+                _prompt _new_tail "3 digit terakhir baru" "$_base_tail"
+                if printf '%s' "$_new_tail" | grep -Eq '^[0-9]{3}$'; then
+                    break
+                fi
+                printf '  harus tepat 3 digit angka\n' >&2
+            done
+            EID="${_base_pref}${_new_tail}"
+            log_info "EID hasil edit: $EID"
+            _new_idx=$((_ec + 1))
+            _eid_offer_save "$_new_idx"
+            return 0
+        elif [ "$_ans" = "$_manual_idx" ]; then
+            {
+                printf '\nEID HARUS dari device yang akan dipakai untuk eSIM ini.\n'
+                printf '  - Cek di iPhone:  Settings > General > About > EID\n'
+                printf '  - Cek di Android: Settings > About phone > SIM status > EID\n'
+                printf '  - Random/EID milik device lain = QR eSIM tidak bisa diaktifkan.\n\n'
+            } >&2
+            _prompt EID "EID eSIM (32 digit)"
+            _new_idx=$((_ec + 1))
+            _eid_offer_save "$_new_idx"
+            return 0
+        else
+            printf '  pilihan tidak valid (1..%d)\n' "$_manual_idx" >&2
+        fi
+    done
+}
+
+# _eid_offer_save SLOT - if a config file is active and EID looks valid,
+# ask the user whether to persist this EID into HYFE_EID_<SLOT>. Stays
+# silent (no save, no error) when there's no config file backing the run
+# (e.g. --config not set and /etc/hyfetrial/config absent).
+_eid_offer_save() {
+    _slot=$1
+    [ -n "${CONFIG_FILE:-}" ] || return 0
+    [ -f "$CONFIG_FILE" ] || return 0
+    _eid_clean=$(printf '%s' "$EID" | tr -d ' :-')
+    if ! printf '%s' "$_eid_clean" | grep -Eq '^[0-9]{32}$'; then
+        return 0
+    fi
+    # Skip if this exact EID is already saved in any slot.
+    _i=1
+    while :; do
+        eval "_v=\${HYFE_EID_$_i:-}"
+        [ -n "$_v" ] || break
+        if [ "$_v" = "$_eid_clean" ]; then
+            return 0
+        fi
+        _i=$((_i + 1))
+    done
+    _save=""
+    _prompt _save "Simpan EID ini sebagai HYFE_EID_$_slot di config? [Y/n]" "Y" 0 1
+    case "$_save" in
+        ''|y|Y|yes|YES)
+            config_set "$CONFIG_FILE" "HYFE_EID_$_slot" "$_eid_clean"
+            eval "HYFE_EID_$_slot=\$_eid_clean"
+            export "HYFE_EID_$_slot"
+            log_info "EID disimpan sebagai HYFE_EID_$_slot di $CONFIG_FILE"
+            ;;
+        *)
+            log_info "EID tidak disimpan (cuma dipakai untuk run ini)"
+            ;;
+    esac
+}
+
+# _bootstrap_config_if_missing - first-run UX. If no config file is in
+# play (neither --config FILE nor /etc/hyfetrial/config exists), offer to
+# create the default config and walk the user through wizard_new_config.
+# Yes -> CONFIG_FILE is set to the new path so subsequent helpers like
+# _eid_offer_save can persist values into it.
+# No  -> stays nil; the run still works but nothing is persisted.
+_bootstrap_config_if_missing() {
+    [ -z "${CONFIG_FILE:-}" ] || return 0
+    _path=$(config_default_path)
+    [ -f "$_path" ] && return 0
+    {
+        printf '=== setup pertama ===\n'
+        printf 'Belum ada config di %s.\n' "$_path"
+        printf 'Tanpa config, setting captcha/IMAP/email akan diminta tiap run.\n\n'
+    } >&2
+    _ans=""
+    _prompt _ans "Buat config dan jalankan wizard setup sekarang? [Y/n]" "Y" 0 1
+    case "$_ans" in
+        ''|y|Y|yes|YES)
+            wizard_new_config "$_path" || return 0
+            CONFIG_FILE=$_path
+            # Re-source the freshly written config so any values entered in
+            # the wizard (captcha mode/key, imap settings, email slots) are
+            # available for the rest of this run without re-asking.
+            # shellcheck disable=SC1090
+            . "$_path" 2>/dev/null || true
+            # Re-resolve captcha key from per-provider slot now that config
+            # has been (re)loaded.
+            if [ -z "${HYFE_CAPTCHA_KEY:-}" ] && [ -n "${HYFE_CAPTCHA_MODE:-}" ]; then
+                HYFE_CAPTCHA_KEY=$(captcha_resolve_key "$HYFE_CAPTCHA_MODE")
+                export HYFE_CAPTCHA_KEY
+            fi
+            ;;
+        *)
+            log_info "lanjut tanpa menyimpan config (cuma run ini saja)"
+            ;;
+    esac
+}
+
 # Interactive wizard: prompts for any required input that wasn't supplied via
 # CLI flag / config file. Triggered by --interactive or by absence of any
 # required flag.
@@ -643,6 +777,7 @@ interactive_prompt() {
         printf '\n=== hyfetrial: mode interaktif ===\n'
         printf '(tekan Enter untuk pakai nilai default kalau ada)\n\n'
     } >&2
+    _bootstrap_config_if_missing
     # _name_mode / _wa_mode are populated by _prompt_choice via `eval`; declare
     # them up-front so shellcheck (SC2154) recognises them as locally assigned.
     _name_mode=""
@@ -666,15 +801,7 @@ interactive_prompt() {
         fi
     fi
     [ -z "$EMAIL" ]    && _prompt_email
-    if [ -z "$EID" ]; then
-        {
-            printf '\nEID HARUS dari device yang akan dipakai untuk eSIM ini.\n'
-            printf '  - Cek di iPhone:  Settings > General > About > EID\n'
-            printf '  - Cek di Android: Settings > About phone > SIM status > EID\n'
-            printf '  - Random/EID milik device lain = QR eSIM tidak bisa diaktifkan.\n\n'
-        } >&2
-        _prompt EID "EID eSIM (32 digit)"
-    fi
+    [ -z "$EID" ]      && _prompt_eid
     if [ -z "$PATTERN" ] && [ -z "$PICK_MSISDN" ]; then
         _prompt PATTERN "Pola digit nomor cantik (kosongkan untuk random)" "" 0 1
     fi
@@ -682,6 +809,12 @@ interactive_prompt() {
         _prompt_captcha_mode
         case "$HYFE_CAPTCHA_MODE" in
             2captcha|anticaptcha|capsolver|nextcaptcha)
+                # Re-resolve from the per-provider slot in case the user just
+                # switched the active mode and a saved HYFE_CAPTCHA_KEY_<MODE>
+                # is already in the environment from the loaded config.
+                if [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
+                    HYFE_CAPTCHA_KEY=$(captcha_resolve_key "$HYFE_CAPTCHA_MODE")
+                fi
                 if [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
                     _prompt HYFE_CAPTCHA_KEY "API key untuk $HYFE_CAPTCHA_MODE" "" 1
                 fi
@@ -741,7 +874,8 @@ confirm() {
 precheck_config() {
     if [ "${HYFE_CAPTCHA_MODE:-manual}" != "manual" ] \
        && [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
-        log_warn "HYFE_CAPTCHA_MODE=$HYFE_CAPTCHA_MODE tapi HYFE_CAPTCHA_KEY kosong"
+        _key_uc=$(printf '%s' "$HYFE_CAPTCHA_MODE" | tr '[:lower:]' '[:upper:]')
+        log_warn "HYFE_CAPTCHA_MODE=$HYFE_CAPTCHA_MODE tapi HYFE_CAPTCHA_KEY_$_key_uc kosong"
         log_warn "captcha pasti gagal - jalankan 'hyfetrial --captcha-config'"
     fi
     if [ "${HYFE_OTP_MODE:-manual}" = "imap" ]; then

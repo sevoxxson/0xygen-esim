@@ -22,8 +22,15 @@
 #   nextcaptcha  - https://nextcaptcha.com/     (FREE TRIAL via Telegram bot
 #                                                @nextcaptcha_bot, then $0.6/1000)
 #HYFE_CAPTCHA_MODE=manual
-#HYFE_CAPTCHA_KEY=
 #HYFE_CAPTCHA_TIMEOUT=180
+
+# Per-provider API key. Each provider has its own slot, jadi pindah mode
+# tidak menghapus key provider lain. Cukup isi slot yang Anda pakai;
+# slot yang lain bisa kosong / di-comment-out.
+#HYFE_CAPTCHA_KEY_NEXTCAPTCHA=next_xxxxxxxxxxxxxxxxxxxx
+#HYFE_CAPTCHA_KEY_2CAPTCHA=
+#HYFE_CAPTCHA_KEY_ANTICAPTCHA=
+#HYFE_CAPTCHA_KEY_CAPSOLVER=
 
 # ---------- otp ----------
 # Pilih salah satu mode:
@@ -58,6 +65,16 @@
 # Single-account fallback (kalau tidak pakai HYFE_EMAIL_N):
 #HYFE_IMAP_USER=me@gmail.com
 #HYFE_IMAP_PASS=app-password-anda
+
+# ---------- EID accounts (multi) ----------
+# Saved EIDs untuk device yang Anda pakai klaim. Saat hyfetrial jalan
+# interaktif, prompt EID akan menampilkan daftar ini sebagai menu, plus:
+#   N+1) edit 3 digit terakhir (untuk nomor seri yang berurutan)
+#   N+2) ketik manual (akan ditawarkan auto-save)
+# Tambahkan/hapus pasangan ini lewat: edit langsung file ini, atau jawab
+# "Y" pada prompt save di mode interaktif.
+#HYFE_EID_1=89049032007208882600178661005175
+#HYFE_EID_2=89049032007208882600178661005200
 
 # ---------- misc ----------
 #HYFE_VERBOSE=0

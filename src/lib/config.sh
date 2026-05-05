@@ -167,8 +167,39 @@ _config_email_count() {
     printf '%s' "$_n"
 }
 
-# wizard_captcha_config FILE - update HYFE_CAPTCHA_MODE/KEY/TIMEOUT in FILE.
+# _captcha_mode_uc MODE - print MODE in uppercase (e.g. nextcaptcha -> NEXTCAPTCHA).
+# Used to derive HYFE_CAPTCHA_KEY_<MODE> variable names.
+_captcha_mode_uc() {
+    printf '%s' "$1" | tr '[:lower:]' '[:upper:]'
+}
+
+# captcha_resolve_key MODE - print the per-provider key for MODE, falling back
+# to the legacy HYFE_CAPTCHA_KEY if the per-provider slot is empty. Reads from
+# the current shell environment (which has typically been seeded by sourcing
+# the config file). Returns empty string if no key is configured.
+captcha_resolve_key() {
+    _mode=$1
+    if [ -z "$_mode" ] || [ "$_mode" = "manual" ]; then
+        printf ''
+        return 0
+    fi
+    _uc=$(_captcha_mode_uc "$_mode")
+    eval "_v=\${HYFE_CAPTCHA_KEY_$_uc:-}"
+    if [ -z "$_v" ]; then
+        # Fallback to legacy single-slot key for back-compat with old configs.
+        _v=${HYFE_CAPTCHA_KEY:-}
+    fi
+    printf '%s' "$_v"
+}
+
+# wizard_captcha_config FILE - update HYFE_CAPTCHA_MODE + per-provider
+# HYFE_CAPTCHA_KEY_<MODE> + HYFE_CAPTCHA_TIMEOUT in FILE.
 # Pressing Enter at any prompt keeps the current value.
+#
+# Each captcha provider (nextcaptcha, 2captcha, anticaptcha, capsolver) has
+# its own key slot, so switching providers does not erase keys for the
+# others. A legacy `HYFE_CAPTCHA_KEY=...` (without suffix) is auto-migrated
+# into the slot for the currently-selected provider on first edit.
 wizard_captcha_config() {
     _f=$1
     config_ensure "$_f" || return 1
@@ -206,30 +237,40 @@ wizard_captcha_config() {
     config_set "$_f" HYFE_CAPTCHA_MODE "$_new_mode"
 
     if [ "$_new_mode" != "manual" ]; then
-        _cur_key=$(config_get "$_f" HYFE_CAPTCHA_KEY)
+        _uc=$(_captcha_mode_uc "$_new_mode")
+        _key_var="HYFE_CAPTCHA_KEY_$_uc"
+        _cur_key=$(config_get "$_f" "$_key_var")
+        # Legacy migration: if no per-mode key but a bare HYFE_CAPTCHA_KEY
+        # exists, assume it belonged to whatever provider the user had
+        # active and auto-migrate it into the per-mode slot.
+        if [ -z "$_cur_key" ]; then
+            _legacy_key=$(config_get "$_f" HYFE_CAPTCHA_KEY)
+            if [ -n "$_legacy_key" ]; then
+                log_info "migrasi key lama HYFE_CAPTCHA_KEY -> $_key_var"
+                config_set "$_f" "$_key_var" "$_legacy_key"
+                config_unset "$_f" HYFE_CAPTCHA_KEY
+                _cur_key=$_legacy_key
+            fi
+        fi
         if [ -n "$_cur_key" ]; then
             _key_pref=$(printf '%s' "$_cur_key" | awk '{print substr($0,1,4)}')
             _key_suf=$(printf '%s'  "$_cur_key" | awk '{print substr($0,length($0)-3,4)}')
-            log_info "API key sekarang: ${_key_pref}...${_key_suf}"
+            log_info "API key $_new_mode sekarang: ${_key_pref}...${_key_suf}"
             _prompt _new_key "API key baru untuk $_new_mode (Enter = tidak diubah)" "" 1 1
         else
             _prompt _new_key "API key untuk $_new_mode" "" 1
         fi
         if [ -n "$_new_key" ]; then
-            config_set "$_f" HYFE_CAPTCHA_KEY "$_new_key"
+            config_set "$_f" "$_key_var" "$_new_key"
         fi
-        # After saving, re-read the file to confirm a key is actually present.
-        # Mode != manual without a key will fail at solve time, so warn early.
-        _check_key=$(config_get "$_f" HYFE_CAPTCHA_KEY)
+        _check_key=$(config_get "$_f" "$_key_var")
         if [ -z "$_check_key" ]; then
-            log_warn "HYFE_CAPTCHA_KEY belum diisi - mode '$_new_mode' butuh API key"
+            log_warn "$_key_var belum diisi - mode '$_new_mode' butuh API key"
             log_warn "jalankan 'hyfetrial --captcha-config' lagi untuk isi API key"
         fi
-    else
-        # Switching back to manual: HYFE_CAPTCHA_KEY no longer required, but
-        # leave it in place so the user can switch back without re-entering.
-        :
     fi
+    # Switching back to manual: leave per-provider keys intact so the user
+    # can switch back later without re-pasting.
 
     _cur_to=$(config_get "$_f" HYFE_CAPTCHA_TIMEOUT)
     [ -n "$_cur_to" ] || _cur_to=180
