@@ -1026,18 +1026,26 @@ hyfe_list_numbers_menu() {
         return 1
     fi
     _hyfe_ensure_config
-    _hyfe_init_cookies
-    # shellcheck disable=SC2064
-    trap '_hyfe_cleanup_cookies' EXIT INT TERM
     PATTERN=""
     if [ -t 0 ]; then
         printf '\n  %bPola digit (kosong = random page):%b ' "$BCYAN" "$RESET"
         read -r _patin
         PATTERN=$(trim "$_patin" 2>/dev/null || printf '%s' "$_patin")
     fi
-    list_numbers_mode || _hyfe_fail "Gagal ambil daftar MSISDN"
-    _hyfe_cleanup_cookies
-    trap - EXIT INT TERM
+    # api_auth / api_session call die() (exit 1) on failure; wrap in a
+    # subshell so a failed listing doesn't kill the entire esim CLI. The
+    # subshell inherits PATTERN from the parent.
+    (
+        set -eu
+        _hyfe_init_cookies
+        trap '_hyfe_cleanup_cookies' EXIT INT TERM
+        list_numbers_mode
+    )
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        _hyfe_fail "Gagal ambil daftar MSISDN (rc=$rc)"
+    fi
+    return $rc
 }
 
 # ============================================================================
