@@ -1090,22 +1090,35 @@ hyfe_list_numbers_menu() {
     # api_auth / api_session call die() (exit 1) on failure; wrap in a
     # subshell so a failed listing doesn't kill the entire esim CLI. Capture
     # the raw `msisdn\tencrypt` lines into a tempfile; we render them with
-    # the esim box theme below (numbered menu, no encrypt blob shown).
+    # the esim box theme below (numbered menu, no encrypt blob shown). We
+    # also capture stderr to a separate tempfile so log_info/verbose noise
+    # doesn't mangle the box on success, but die()/log_error diagnostics
+    # are still surfaced to the user when the API call fails.
     # Tempfile keyed by PID + epoch for portability (POSIX sh: no $RANDOM).
     _tmp="${TMPDIR:-/tmp}/hyfe_msisdn.$$.$(date +%s 2>/dev/null || printf '0')"
+    _tmp_err="${_tmp}.err"
     : > "$_tmp" 2>/dev/null || _tmp="${TMPDIR:-/tmp}/hyfe_msisdn.$$"
+    : > "$_tmp_err" 2>/dev/null || _tmp_err="${TMPDIR:-/tmp}/hyfe_msisdn.$$.err"
     (
         set -eu
         _hyfe_init_cookies
         trap '_hyfe_cleanup_cookies' EXIT INT TERM
         list_numbers_mode
-    ) >"$_tmp" 2>/dev/null
+    ) >"$_tmp" 2>"$_tmp_err"
     rc=$?
     if [ "$rc" -ne 0 ]; then
-        rm -f "$_tmp" 2>/dev/null
+        # Surface the captured stderr (api_auth/api_session/api_find_msisdn
+        # die/log_error messages) so the user can diagnose auth/network
+        # failures instead of just seeing "rc=N".
+        if [ -s "$_tmp_err" ]; then
+            printf '\n' >&2
+            cat "$_tmp_err" >&2 2>/dev/null
+        fi
+        rm -f "$_tmp" "$_tmp_err" 2>/dev/null
         _hyfe_fail "Gagal ambil daftar MSISDN (rc=$rc)"
         return $rc
     fi
+    rm -f "$_tmp_err" 2>/dev/null
     # Count non-empty lines (each row is "msisdn\tencrypt").
     _count=$(awk 'NF { n++ } END { print n + 0 }' "$_tmp" 2>/dev/null || printf '0')
     [ -n "$_count" ] || _count=0
