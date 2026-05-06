@@ -1,0 +1,14 @@
+# shellcheck config for the esim repo.
+#
+# SC2034 (variable appears unused): the UI helper file `src/esim` declares
+# a full ANSI palette + box-drawing constants that are consumed by the lib
+# files (src/lib/hyfe.sh in particular) only AFTER `esim` sources them.
+# shellcheck can't see that cross-file usage so it produces false-positive
+# warnings. Same for HYFE_VERSION, which is a public constant exposed for
+# downstream tooling.
+disable=SC2034
+
+# SC2016 (Expressions don't expand in single quotes): we use `'.[$idx] | {...}'`
+# style jq filters where `$idx` is a jq variable injected via `--argjson`,
+# not a shell variable. This is intentional.
+disable=SC2016

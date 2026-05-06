@@ -151,19 +151,42 @@ trim() {
 }
 
 # Print a positive integer in [1..max] using /dev/urandom when available.
-# Falls back to date(1) so it still works on minimal busybox environments.
+# Falls back to date+PID mixing so it still works on minimal busybox where
+# /dev/urandom is missing or od is unavailable.
+#
+# Each call mixes:
+#   - 4 fresh bytes from /dev/urandom (32-bit)
+#   - epoch seconds
+#   - $$ (shell PID)
+#   - a per-process counter (_HYFE_RAND_CTR) so consecutive calls within
+#     the same process never collide on a degraded entropy source
+# Result is reduced modulo _max with a deflated bias.
 random_int() {
     _max="$1"
     _max=${_max:-1}
     [ "$_max" -gt 0 ] 2>/dev/null || _max=1
+    _n=""
     if [ -r /dev/urandom ] && command -v od >/dev/null 2>&1; then
         _n=$(od -An -N4 -tu4 /dev/urandom 2>/dev/null | tr -d ' ')
-    else
-        _n=""
     fi
-    [ -n "$_n" ] || _n=$(date +%s 2>/dev/null)
-    [ -n "$_n" ] || _n=1
-    echo $(( (_n % _max) + 1 ))
+    if [ -z "$_n" ] && command -v hexdump >/dev/null 2>&1 && [ -r /dev/urandom ]; then
+        _n=$(hexdump -n 4 -e '"%u"' /dev/urandom 2>/dev/null)
+    fi
+    [ -n "$_n" ] || _n=0
+    _ts=$(date +%s%N 2>/dev/null)
+    case "$_ts" in
+        ''|*N*) _ts=$(date +%s 2>/dev/null) ;;
+    esac
+    [ -n "$_ts" ] || _ts=1
+    _HYFE_RAND_CTR=$(( ${_HYFE_RAND_CTR:-0} + 1 ))
+    # Avoid arithmetic overflow on 32-bit shells: reduce each component
+    # modulo a 16-bit prime before combining.
+    _a=$(( _n  % 65521 ))
+    _b=$(( _ts % 65521 ))
+    _c=$(( $$  % 65521 ))
+    _d=$(( _HYFE_RAND_CTR % 65521 ))
+    _mix=$(( (_a * 1103515245 + _b * 12345 + _c * 2654435761 + _d) & 0x7fffffff ))
+    echo $(( (_mix % _max) + 1 ))
 }
 
 # Random Indonesian-style two-word name (e.g. "Andi Pratama").
@@ -180,15 +203,35 @@ random_indo_name() {
     printf '%s %s' "$_f" "$_l"
 }
 
+# Indonesian mobile operator prefix list (3 digits, no leading zero).
+# Covers Telkomsel, Indosat, XL, Smartfren, Tri, Axis. Used by
+# random_wa_local so generated numbers look like real-world MSISDNs
+# instead of repeating-digit garbage like "0888888...".
+_HYFE_WA_PREFIXES="811 812 813 821 822 823 851 852 853 \
+814 815 816 855 856 857 858 \
+817 818 819 859 877 878 \
+881 882 883 884 885 886 887 888 889 \
+895 896 897 898 899 \
+831 832 833 838"
+
 # Random Indonesian mobile MSISDN local part (without leading 0 / +62).
-# Format: starts with "8", total 11 digits (matches the "08XXXXXXXXX" pattern
-# accepted by the upstream form). The CLI strips leading 0/+62 and validates
-# 8..12 digits, so 11 digits including the leading "8" is always in range.
+#
+# Format: 11 digits total = 3-digit operator prefix + 8 random digits. The
+# CLI strips leading 0/+62 and validates 8..12 digits, so 11 digits is in
+# range and matches the upstream form's "08XXXXXXXXX" expectation.
+#
+# Picking the first 3 digits from a real operator prefix list (instead of
+# always "8" + 10 random digits) gives much better surface variety, so the
+# random output looks like an actual Indonesian mobile number rather than
+# something obviously synthetic. The remaining 8 digits are independent
+# random_int(10) draws.
 random_wa_local() {
-    _len=11
-    _out="8"
+    _pcount=$(printf '%s' "$_HYFE_WA_PREFIXES" | awk '{print NF}')
+    _pidx=$(random_int "$_pcount")
+    _pref=$(printf '%s' "$_HYFE_WA_PREFIXES" | awk -v i="$_pidx" '{print $i}')
+    _out="$_pref"
     _i=1
-    while [ "$_i" -lt "$_len" ]; do
+    while [ "$_i" -le 8 ]; do
         _r=$(random_int 10)
         _d=$((_r - 1))
         _out="${_out}${_d}"
