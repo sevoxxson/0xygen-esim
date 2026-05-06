@@ -55,11 +55,21 @@ SELECTED_ENCRYPT=""
 CONFIG_FILE=""
 
 # Reset claim-cycle state. Dipanggil di awal hyfe_claim_now / hyfe_quick_claim.
+#
+# Catatan: HYFE_IMAP_USER & HYFE_IMAP_PASS juga di-reset disini supaya tidak
+# bocor antar-slot. Tanpa reset, user yg sebelumnya pakai slot Y (HYFE_IMAP_PASS_Y
+# ter-export ke HYFE_IMAP_PASS) lalu pindah ke slot X tanpa pass akan ngedapetin
+# kredensial Y - polling IMAP-nya jadi mantau mailbox Y, padahal OTP dikirim ke
+# email X. _hyfe_ensure_config nanti load ulang dari CONFIG_FILE (kalau ada
+# HYFE_IMAP_USER global di config), claim-now/quick-claim juga akan set ulang
+# dari email-slot yang user pilih.
 _hyfe_reset_state() {
     NAME=""; WHATSAPP=""; EMAIL=""; EID=""; PATTERN=""
     PICK_MSISDN=""; SELECTED_MSISDN=""; SELECTED_ENCRYPT=""
     LIST_ONLY=0; PAGES=1; DRY_RUN=0; ASSUME_YES=0
     INTERACTIVE=0; EMAIL_MANUAL=0
+    HYFE_IMAP_USER=""; HYFE_IMAP_PASS=""
+    export HYFE_IMAP_USER HYFE_IMAP_PASS
 }
 
 # Auto-load config file jika belum di-load oleh host. `esim` biasanya udah
@@ -348,7 +358,7 @@ _prompt_email() {
                 # because OTP_MODE might be `manual`, but if the user later
                 # switches to imap they'll get a confusing error. Warn now.
                 log_warn "HYFE_IMAP_PASS_$_ans belum di-set untuk $EMAIL"
-                log_warn "kalau pakai OTP IMAP, tambahkan via 'hyfetrial --email-config' (e/edit)"
+                log_warn "kalau pakai OTP IMAP, tambahkan via menu Klaim HYFE -> opsi 8 (Edit email config)"
             fi
             return 0
         elif [ "$_ans" = "$_manual_idx" ]; then
@@ -822,16 +832,16 @@ precheck_config() {
        && [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
         _key_uc=$(printf '%s' "$HYFE_CAPTCHA_MODE" | tr '[:lower:]' '[:upper:]')
         log_warn "HYFE_CAPTCHA_MODE=$HYFE_CAPTCHA_MODE tapi HYFE_CAPTCHA_KEY_$_key_uc kosong"
-        log_warn "captcha pasti gagal - jalankan 'hyfetrial --captcha-config'"
+        log_warn "captcha pasti gagal - jalankan menu Klaim HYFE -> opsi 6 (Edit captcha config)"
     fi
     if [ "${HYFE_OTP_MODE:-manual}" = "imap" ]; then
         if [ -z "${HYFE_IMAP_URL:-}" ]; then
             log_warn "HYFE_OTP_MODE=imap tapi HYFE_IMAP_URL kosong"
-            log_warn "jalankan 'hyfetrial --imap-config' untuk isi setting IMAP"
+            log_warn "jalankan menu Klaim HYFE -> opsi 7 (Edit IMAP config) untuk isi setting IMAP"
         fi
         if [ -z "${HYFE_IMAP_USER:-}" ] && [ -z "${HYFE_EMAIL_1:-}" ]; then
             log_warn "HYFE_OTP_MODE=imap tapi belum ada email akun (HYFE_EMAIL_N kosong)"
-            log_warn "jalankan 'hyfetrial --email-config' untuk daftarkan email"
+            log_warn "jalankan menu Klaim HYFE -> opsi 8 (Edit email config) untuk daftarkan email"
         fi
         if [ -n "${HYFE_IMAP_USER:-}" ] && [ -z "${HYFE_IMAP_PASS:-}" ]; then
             log_warn "HYFE_IMAP_USER=$HYFE_IMAP_USER tapi HYFE_IMAP_PASS kosong"
@@ -973,7 +983,14 @@ hyfe_setup_config() {
         return 1
     fi
     _path="${CONFIG_FILE:-$(config_default_path)}"
-    wizard_new_config "$_path"
+    # Wrap wizard in a subshell so an EOF (Ctrl-D) inside _prompt's
+    # `exit 130` only terminates the subshell, not the entire esim CLI.
+    ( wizard_new_config "$_path" )
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+        _hyfe_fail "Wizard dibatalkan (rc=$_rc)"
+        return $_rc
+    fi
     CONFIG_FILE="$_path"
     _hyfe_ensure_config
     _hyfe_ok "Config disimpan di $_path"
@@ -986,7 +1003,12 @@ hyfe_edit_captcha_config() {
         return 1
     fi
     _path="${CONFIG_FILE:-$(config_default_path)}"
-    wizard_captcha_config "$_path"
+    ( wizard_captcha_config "$_path" )
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+        _hyfe_fail "Wizard dibatalkan (rc=$_rc)"
+        return $_rc
+    fi
     CONFIG_FILE="$_path"
     _hyfe_ensure_config
 }
@@ -998,7 +1020,12 @@ hyfe_edit_imap_config() {
         return 1
     fi
     _path="${CONFIG_FILE:-$(config_default_path)}"
-    wizard_imap_config "$_path"
+    ( wizard_imap_config "$_path" )
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+        _hyfe_fail "Wizard dibatalkan (rc=$_rc)"
+        return $_rc
+    fi
     CONFIG_FILE="$_path"
     _hyfe_ensure_config
 }
@@ -1010,7 +1037,12 @@ hyfe_edit_email_config() {
         return 1
     fi
     _path="${CONFIG_FILE:-$(config_default_path)}"
-    wizard_email_config "$_path"
+    ( wizard_email_config "$_path" )
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+        _hyfe_fail "Wizard dibatalkan (rc=$_rc)"
+        return $_rc
+    fi
     CONFIG_FILE="$_path"
     _hyfe_ensure_config
 }
@@ -1028,24 +1060,92 @@ hyfe_list_numbers_menu() {
     _hyfe_ensure_config
     PATTERN=""
     if [ -t 0 ]; then
-        printf '\n  %bPola digit (kosong = random page):%b ' "$BCYAN" "$RESET"
-        read -r _patin
-        PATTERN=$(trim "$_patin" 2>/dev/null || printf '%s' "$_patin")
+        while :; do
+            printf '\n  %bPola digit (kosong = random page, 1-5 digit):%b ' \
+                "$BCYAN" "$RESET"
+            if ! IFS= read -r _patin; then
+                printf '\n'
+                return 0
+            fi
+            _patin=$(trim "$_patin" 2>/dev/null || printf '%s' "$_patin")
+            case "$_patin" in
+                "") PATTERN=""; break ;;
+                *[!0-9]*)
+                    printf '  %b! Pola harus digit angka saja.%b\n' \
+                        "$BRED" "$RESET"
+                    continue
+                    ;;
+                *)
+                    if [ "${#_patin}" -gt 5 ]; then
+                        printf '  %b! Maksimal 5 digit (input: %d).%b\n' \
+                            "$BRED" "${#_patin}" "$RESET"
+                        continue
+                    fi
+                    PATTERN="$_patin"
+                    break
+                    ;;
+            esac
+        done
     fi
     # api_auth / api_session call die() (exit 1) on failure; wrap in a
-    # subshell so a failed listing doesn't kill the entire esim CLI. The
-    # subshell inherits PATTERN from the parent.
+    # subshell so a failed listing doesn't kill the entire esim CLI. Capture
+    # the raw `msisdn\tencrypt` lines into a tempfile; we render them with
+    # the esim box theme below (numbered menu, no encrypt blob shown).
+    # Tempfile keyed by PID + epoch for portability (POSIX sh: no $RANDOM).
+    _tmp="${TMPDIR:-/tmp}/hyfe_msisdn.$$.$(date +%s 2>/dev/null || printf '0')"
+    : > "$_tmp" 2>/dev/null || _tmp="${TMPDIR:-/tmp}/hyfe_msisdn.$$"
     (
         set -eu
         _hyfe_init_cookies
         trap '_hyfe_cleanup_cookies' EXIT INT TERM
         list_numbers_mode
-    )
+    ) >"$_tmp" 2>/dev/null
     rc=$?
     if [ "$rc" -ne 0 ]; then
+        rm -f "$_tmp" 2>/dev/null
         _hyfe_fail "Gagal ambil daftar MSISDN (rc=$rc)"
+        return $rc
     fi
-    return $rc
+    # Count non-empty lines (each row is "msisdn\tencrypt").
+    _count=$(awk 'NF { n++ } END { print n + 0 }' "$_tmp" 2>/dev/null || printf '0')
+    [ -n "$_count" ] || _count=0
+    if [ "$_count" -le 0 ]; then
+        rm -f "$_tmp" 2>/dev/null
+        printf '\n'
+        box_top
+        if [ -n "$PATTERN" ]; then
+            box_text "Tidak ada MSISDN tersedia (pola: $PATTERN)" "$BOLD$BYELLOW"
+        else
+            box_text "Tidak ada MSISDN tersedia" "$BOLD$BYELLOW"
+        fi
+        box_bottom
+        return 0
+    fi
+    # Render the styled list (numbered, formatted as 0xxx-xxxx-xxxx).
+    printf '\n'
+    box_top
+    if [ -n "$PATTERN" ]; then
+        box_text "MSISDN TERSEDIA ($_count nomor) — pola: $PATTERN" \
+            "$BOLD$WHITE"
+    else
+        box_text "MSISDN TERSEDIA ($_count nomor) — random page" \
+            "$BOLD$WHITE"
+    fi
+    box_sep
+    _i=1
+    while IFS= read -r _line; do
+        [ -n "$_line" ] || continue
+        _msisdn=$(printf '%s' "$_line" | cut -f1)
+        [ -n "$_msisdn" ] || continue
+        # Format MSISDN groups for readability: "081916556671" -> "0819-1655-6671"
+        _fmt=$(printf '%s' "$_msisdn" | \
+            sed 's/^\(....\)\(....\)\(.*\)$/\1-\2-\3/')
+        box_menu_item "$_i" "$_fmt" "$BOLD$BGREEN"
+        _i=$((_i + 1))
+    done <"$_tmp"
+    box_bottom
+    rm -f "$_tmp" 2>/dev/null
+    return 0
 }
 
 # ============================================================================
@@ -1206,7 +1306,11 @@ hyfe_quick_setup() {
     while :; do
         printf '\n  %bPilih slot email [1-%d]:%b ' \
             "$BOLD$BCYAN" "$_ec" "$RESET"
-        read -r _ans
+        if ! IFS= read -r _ans; then
+            printf '\n  %b! Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan.%b\n' \
+                "$BRED" "$RESET"
+            return 1
+        fi
         case "$_ans" in
             ''|*[!0-9]*) continue ;;
         esac
@@ -1223,56 +1327,71 @@ hyfe_quick_setup() {
         _hyfe_fail "Belum ada EID tersimpan. Jalankan opsi 5 (Setup config) dulu."
         return 1
     fi
-    _hyfe_list_eid_slots >/dev/null
-    _i=1
-    while [ "$_i" -le "$_ec_eid" ]; do
-        _v=$(eval "printf '%s' \"\${HYFE_EID_$_i:-}\"")
-        printf '  %b%d)%b %s %b(slot %d)%b\n' \
-            "$BOLD$BYELLOW" "$_i" "$RESET" \
-            "$(_hyfe_eid_mask "$_v")" \
-            "$DIM" "$_i" "$RESET"
-        _i=$((_i + 1))
-    done
     _opt3=$((_ec_eid + 1))
     _opt4=$((_ec_eid + 2))
-    printf '  %b%d)%b edit 3 digit terakhir slot tertentu\n' \
-        "$BOLD$BYELLOW" "$_opt3" "$RESET"
-    printf '  %b%d)%b edit 4 digit terakhir slot tertentu\n' \
-        "$BOLD$BYELLOW" "$_opt4" "$RESET"
     _q_eid=""
-    while :; do
+    while [ -z "$_q_eid" ]; do
+        # Redraw the EID menu every iteration so the user always sees the
+        # available options (e.g. after declining to save an edited EID).
+        _i=1
+        while [ "$_i" -le "$_ec_eid" ]; do
+            _v=$(eval "printf '%s' \"\${HYFE_EID_$_i:-}\"")
+            printf '  %b%d)%b %s %b(slot %d)%b\n' \
+                "$BOLD$BYELLOW" "$_i" "$RESET" \
+                "$(_hyfe_eid_mask "$_v")" \
+                "$DIM" "$_i" "$RESET"
+            _i=$((_i + 1))
+        done
+        printf '  %b%d)%b edit 3 digit terakhir slot tertentu\n' \
+            "$BOLD$BYELLOW" "$_opt3" "$RESET"
+        printf '  %b%d)%b edit 4 digit terakhir slot tertentu\n' \
+            "$BOLD$BYELLOW" "$_opt4" "$RESET"
         printf '\n  %bPilih:%b ' "$BOLD$BCYAN" "$RESET"
-        read -r _ans
+        if ! IFS= read -r _ans; then
+            printf '\n  %b! Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan.%b\n' \
+                "$BRED" "$RESET"
+            return 1
+        fi
         case "$_ans" in
-            ''|*[!0-9]*) continue ;;
+            ''|*[!0-9]*) printf '\n'; continue ;;
         esac
         if [ "$_ans" -ge 1 ] && [ "$_ans" -le "$_ec_eid" ]; then
             _q_eid=$(eval "printf '%s' \"\${HYFE_EID_$_ans:-}\"")
-            break
-        elif [ "$_ans" -eq "$_opt3" ] || [ "$_ans" -eq "$_opt4" ]; then
+            continue
+        fi
+        if [ "$_ans" -eq "$_opt3" ] || [ "$_ans" -eq "$_opt4" ]; then
             if [ "$_ans" -eq "$_opt3" ]; then _ndig=3; else _ndig=4; fi
             _slot=""
-            while :; do
+            while [ -z "$_slot" ]; do
                 printf '  %bEdit dari slot mana? [1-%d]:%b ' \
                     "$BOLD$BCYAN" "$_ec_eid" "$RESET"
-                read -r _sa
+                if ! IFS= read -r _sa; then
+                    printf '\n  %b! Input dibatalkan (EOF).%b\n' \
+                        "$BRED" "$RESET"
+                    return 1
+                fi
                 case "$_sa" in ''|*[!0-9]*) continue ;; esac
                 if [ "$_sa" -ge 1 ] && [ "$_sa" -le "$_ec_eid" ]; then
                     _slot="$_sa"
-                    break
                 fi
             done
-            _new=$(_hyfe_edit_eid_tail "$_slot" "$_ndig") || continue
+            _new=$(_hyfe_edit_eid_tail "$_slot" "$_ndig") || { printf '\n'; continue; }
             printf '\n  %bEID hasil edit:%b %s\n' \
                 "$BOLD$BGREEN" "$RESET" "$(_hyfe_eid_mask "$_new")"
             printf '  %bSimpan ke HYFE_QUICK_EID? [Y/n]:%b ' \
                 "$BOLD$BCYAN" "$RESET"
-            read -r _yn
+            if ! IFS= read -r _yn; then
+                printf '\n  %b! Input dibatalkan (EOF).%b\n' \
+                    "$BRED" "$RESET"
+                return 1
+            fi
             case "$_yn" in
-                [nN]*) continue ;;
-                *) _q_eid="$_new"; break ;;
+                [nN]*) printf '\n' ;;
+                *) _q_eid="$_new" ;;
             esac
+            continue
         fi
+        printf '\n'
     done
 
     # ---- Step 3: captcha mode ----
@@ -1286,7 +1405,11 @@ hyfe_quick_setup() {
     _q_cap=""
     while :; do
         printf '\n  %bPilih [1-5]:%b ' "$BOLD$BCYAN" "$RESET"
-        read -r _ans
+        if ! IFS= read -r _ans; then
+            printf '\n  %b! Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan.%b\n' \
+                "$BRED" "$RESET"
+            return 1
+        fi
         case "$_ans" in
             1) _q_cap="manual"; break ;;
             2) _q_cap="nextcaptcha"; break ;;
@@ -1304,7 +1427,11 @@ hyfe_quick_setup() {
     _q_otp=""
     while :; do
         printf '\n  %bPilih [1-2]:%b ' "$BOLD$BCYAN" "$RESET"
-        read -r _ans
+        if ! IFS= read -r _ans; then
+            printf '\n  %b! Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan.%b\n' \
+                "$BRED" "$RESET"
+            return 1
+        fi
         case "$_ans" in
             1) _q_otp="imap"; break ;;
             2) _q_otp="manual"; break ;;
@@ -1313,10 +1440,33 @@ hyfe_quick_setup() {
 
     # ---- Step 5: pattern ----
     section_header "Pola digit MSISDN (opsional)" "$BCYAN"
-    printf '  %bKosongkan untuk random, atau ketik digit (mis. 1122):%b ' \
-        "$BOLD$BCYAN" "$RESET"
-    read -r _q_pat
-    _q_pat=$(trim "$_q_pat" 2>/dev/null || printf '%s' "$_q_pat")
+    _q_pat=""
+    while :; do
+        printf '  %bKosongkan untuk random, atau ketik digit 1-5 (mis. 1122):%b ' \
+            "$BOLD$BCYAN" "$RESET"
+        if ! IFS= read -r _q_pat; then
+            printf '\n  %b! Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan.%b\n' \
+                "$BRED" "$RESET"
+            return 1
+        fi
+        _q_pat=$(trim "$_q_pat" 2>/dev/null || printf '%s' "$_q_pat")
+        case "$_q_pat" in
+            "") break ;;
+            *[!0-9]*)
+                printf '  %b! Pola harus digit angka saja.%b\n' \
+                    "$BRED" "$RESET"
+                continue
+                ;;
+            *)
+                if [ "${#_q_pat}" -gt 5 ]; then
+                    printf '  %b! Maksimal 5 digit (input: %d).%b\n' \
+                        "$BRED" "${#_q_pat}" "$RESET"
+                    continue
+                fi
+                break
+                ;;
+        esac
+    done
 
     # ---- Step 6: auto-pick MSISDN ----
     section_header "Auto-pick MSISDN?" "$BCYAN"
@@ -1326,7 +1476,11 @@ hyfe_quick_setup() {
     _q_auto=""
     while :; do
         printf '\n  %bPilih [1-2]:%b ' "$BOLD$BCYAN" "$RESET"
-        read -r _ans
+        if ! IFS= read -r _ans; then
+            printf '\n  %b! Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan.%b\n' \
+                "$BRED" "$RESET"
+            return 1
+        fi
         case "$_ans" in
             1) _q_auto="1"; break ;;
             2) _q_auto="0"; break ;;
@@ -1389,8 +1543,16 @@ hyfe_quick_claim() {
     PATTERN="${HYFE_QUICK_PATTERN:-}"
     NAME=$(random_indo_name)
     WHATSAPP=$(random_wa_local)
+    # Override-mode handling: HYFE_CAPTCHA_KEY and HYFE_IMAP_USER/PASS sudah
+    # di-reset oleh _hyfe_reset_state, tapi _hyfe_ensure_config mungkin sudah
+    # me-resolve key untuk mode lama (HYFE_CAPTCHA_MODE dari config). Karena
+    # HYFE_QUICK_CAPTCHA_MODE bisa beda dari HYFE_CAPTCHA_MODE config, paksa
+    # re-resolve dengan kosongkan HYFE_CAPTCHA_KEY supaya pre-check di bawah
+    # benar-benar mengambil key dari mode baru.
     HYFE_CAPTCHA_MODE="$HYFE_QUICK_CAPTCHA_MODE"
     HYFE_OTP_MODE="$HYFE_QUICK_OTP_MODE"
+    HYFE_CAPTCHA_KEY=""
+    export HYFE_CAPTCHA_KEY
     # Resolve IMAP creds dari slot kalau OTP_MODE=imap
     if [ "$HYFE_OTP_MODE" = "imap" ]; then
         _ipass=$(eval "printf '%s' \"\${HYFE_IMAP_PASS_$_slot:-}\"")
@@ -1491,7 +1653,11 @@ hyfe_menu() {
         printf '  %b───────────────────────────────────────%b\n' "$DIM$BCYAN" "$RESET"
         printf '  %b0)%b Kembali ke main menu\n\n' "$BOLD$BRED" "$RESET"
         printf '  %bPilih opsi:%b ' "$BOLD$BCYAN" "$RESET"
-        read -r _opt
+        if ! IFS= read -r _opt; then
+            # EOF (Ctrl-D) - return to esim main menu instead of spinning.
+            printf '\n'
+            return 0
+        fi
         case "$_opt" in
             1) hyfe_claim_now           ; pause ;;
             2) hyfe_list_numbers_menu   ; pause ;;

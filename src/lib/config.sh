@@ -266,7 +266,7 @@ wizard_captcha_config() {
         _check_key=$(config_get "$_f" "$_key_var")
         if [ -z "$_check_key" ]; then
             log_warn "$_key_var belum diisi - mode '$_new_mode' butuh API key"
-            log_warn "jalankan 'hyfetrial --captcha-config' lagi untuk isi API key"
+            log_warn "jalankan menu Klaim HYFE -> opsi 6 (Edit captcha config) lagi untuk isi API key"
         fi
     fi
     # Switching back to manual: leave per-provider keys intact so the user
@@ -325,9 +325,9 @@ wizard_imap_config() {
     _has_legacy_user=$(config_get "$_f" HYFE_IMAP_USER)
     if [ "$_emails_n" = 0 ] && [ -z "$_has_legacy_user" ]; then
         log_warn "belum ada email akun terdaftar (HYFE_EMAIL_N kosong)"
-        log_warn "OTP IMAP butuh login Gmail - jalankan 'hyfetrial --email-config'"
+        log_warn "OTP IMAP butuh login Gmail - jalankan menu Klaim HYFE -> opsi 8 (Edit email config)"
     else
-        log_info "tip: 'hyfetrial --email-config' untuk tambah email + App Password"
+        log_info "tip: menu Klaim HYFE -> opsi 8 (Edit email config) untuk tambah email + App Password"
     fi
 }
 
@@ -380,7 +380,7 @@ wizard_email_config() {
                     config_set "$_f" "HYFE_IMAP_PASS_$_new_idx" "$_p"
                 else
                     log_warn "App Password kosong - akun ini tidak bisa dipakai untuk OTP IMAP otomatis"
-                    log_warn "isi nanti via 'hyfetrial --email-config' -> e) edit"
+                    log_warn "isi nanti via menu Klaim HYFE -> opsi 8 (Edit email config) -> e) edit"
                 fi
                 log_info "email $_e disimpan sebagai HYFE_EMAIL_$_new_idx"
                 ;;
@@ -458,5 +458,5 @@ wizard_new_config() {
     wizard_imap_config "$_f" || return 1
     wizard_email_config "$_f" || return 1
     log_info "config selesai disimpan di $_f"
-    log_info "verifikasi: hyfetrial --config"
+    log_info "verifikasi: menu Klaim HYFE -> opsi 9 (Lihat config aktif)"
 }
