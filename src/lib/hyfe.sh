@@ -78,6 +78,14 @@ _hyfe_ensure_config() {
         # shellcheck disable=SC1090
         . "$CONFIG_FILE"
     fi
+    # Resolve per-provider captcha key into HYFE_CAPTCHA_KEY (which is what
+    # captcha_solve in lib/captcha.sh actually reads). The old standalone
+    # hyfetrial CLI did this right after sourcing the config; preserve the
+    # same behavior here so non-manual modes work without extra prompts.
+    if [ -z "${HYFE_CAPTCHA_KEY:-}" ] && [ -n "${HYFE_CAPTCHA_MODE:-}" ]; then
+        HYFE_CAPTCHA_KEY=$(captcha_resolve_key "$HYFE_CAPTCHA_MODE" 2>/dev/null || true)
+        [ -n "$HYFE_CAPTCHA_KEY" ] && export HYFE_CAPTCHA_KEY
+    fi
 }
 
 # Cookie jar lifecycle - claim flow butuh cookie jar khusus. Setiap entry
@@ -1114,7 +1122,7 @@ _hyfe_count_eid_slots() {
 }
 
 _hyfe_count_email_slots() {
-    _config_email_count
+    _config_email_count "${CONFIG_FILE:-$(config_default_path)}"
 }
 
 # Edit last N digits of a saved EID (slot index). N must be 3 or 4.
@@ -1132,24 +1140,28 @@ _hyfe_edit_eid_tail() {
         return 1
     fi
     _prefix=$(printf '%s' "$_orig" | cut -c 1-$((_olen - _ndigits)))
+    # All UI output goes to stderr - this function is consumed via
+    # command substitution `$(_hyfe_edit_eid_tail ...)` so anything on
+    # stdout becomes part of the captured EID value. Only the final
+    # `printf '%s%s'` at the bottom is intentionally stdout.
     printf '\n  %bPrefix tetap:%b  %s%b%s%b\n' \
         "$BOLD$BCYAN" "$RESET" "$_prefix" "$DIM" \
-        "$(repeat_char 'X' "$_ndigits")" "$RESET"
+        "$(repeat_char 'X' "$_ndigits")" "$RESET" >&2
     while :; do
         printf '  %b%d digit terakhir baru:%b ' \
-            "$BOLD$BYELLOW" "$_ndigits" "$RESET"
+            "$BOLD$BYELLOW" "$_ndigits" "$RESET" >&2
         read -r _tail
         _tail=$(trim "$_tail" 2>/dev/null || printf '%s' "$_tail")
         case "$_tail" in
             *[!0-9]*|"")
                 printf '  %b! Harus tepat %d digit angka.%b\n' \
-                    "$BRED" "$_ndigits" "$RESET"
+                    "$BRED" "$_ndigits" "$RESET" >&2
                 continue
                 ;;
         esac
         if [ "${#_tail}" -ne "$_ndigits" ]; then
             printf '  %b! Panjang harus tepat %d digit (input: %d).%b\n' \
-                "$BRED" "$_ndigits" "${#_tail}" "$RESET"
+                "$BRED" "$_ndigits" "${#_tail}" "$RESET" >&2
             continue
         fi
         break
@@ -1381,12 +1393,23 @@ hyfe_quick_claim() {
         fi
     fi
     ASSUME_YES=1
-    INTERACTIVE=0
+    # Honor HYFE_QUICK_AUTO_PICK: when 0, user wants to manually pick the
+    # MSISDN from the list (everything else still auto-resolved). When 1,
+    # claim_flow goes fully unattended and pick_msisdn picks the first
+    # available number via its non-interactive else branch.
+    if [ "${HYFE_QUICK_AUTO_PICK:-0}" = "1" ]; then
+        INTERACTIVE=0
+    else
+        INTERACTIVE=1
+    fi
 
     # ---- Pre-check captcha key for non-manual modes ----
     if [ "$HYFE_CAPTCHA_MODE" != "manual" ]; then
-        _ck=$(captcha_resolve_key 2>/dev/null || true)
-        if [ -z "$_ck" ]; then
+        if [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
+            HYFE_CAPTCHA_KEY=$(captcha_resolve_key "$HYFE_CAPTCHA_MODE" 2>/dev/null || true)
+            [ -n "$HYFE_CAPTCHA_KEY" ] && export HYFE_CAPTCHA_KEY
+        fi
+        if [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
             _hyfe_fail "API key captcha untuk mode '$HYFE_CAPTCHA_MODE' kosong"
             printf '\n  %bJalankan opsi 6 (Edit captcha config) untuk set key.%b\n' \
                 "$DIM" "$RESET"
@@ -1415,26 +1438,14 @@ hyfe_quick_claim() {
         "Auto-pick" "$([ "${HYFE_QUICK_AUTO_PICK:-0}" = "1" ] && echo "ya" || echo "tidak")"
 
     # ---- Run claim flow in subshell ----
+    # AUTO_PICK=1 -> INTERACTIVE=0 -> pick_msisdn falls into the else branch
+    # (lib/hyfe.sh:214) which auto-picks the first available number.
+    # AUTO_PICK=0 -> INTERACTIVE=1 -> pick_msisdn calls _prompt_msisdn_choice
+    # for an explicit picker prompt.
     (
         set -eu
         _hyfe_init_cookies
         trap '_hyfe_cleanup_cookies' EXIT INT TERM
-        # Override pick_msisdn picker untuk auto-pick mode.
-        if [ "${HYFE_QUICK_AUTO_PICK:-0}" = "1" ]; then
-            _prompt_msisdn_choice() {
-                # default: ambil baris pertama dari list. Saat dipanggil dari
-                # pick_msisdn, $1 = json array of {msisdn, encrypt} pairs.
-                _list="$1"
-                _row=$(printf '%s' "$_list" | jq -c '.[0]')
-                if [ -z "$_row" ] || [ "$_row" = "null" ]; then
-                    log_error "list kosong, gak ada nomor untuk auto-pick"
-                    return 1
-                fi
-                SELECTED_MSISDN=$(printf '%s' "$_row" | jq -r '.msisdn')
-                SELECTED_ENCRYPT=$(printf '%s' "$_row" | jq -r '.encrypt')
-                log_info "auto-pick MSISDN: $SELECTED_MSISDN"
-            }
-        fi
         claim_flow
     )
     rc=$?
