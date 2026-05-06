@@ -21,7 +21,7 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
       - name: Lint
-        run: shellcheck -s sh src/hyfetrial src/lib/*.sh
+        run: shellcheck -s sh src/esim src/lib/*.sh
 
   # ---------------------------------------------------------------------------
   # OpenWrt 24.10  -> .ipk (legacy opkg). PKGARCH:=all so we only build

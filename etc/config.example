@@ -1,17 +1,21 @@
-# /etc/hyfetrial/config - default config auto-loaded by hyfetrial
+# /etc/hyfetrial/config - default config auto-loaded by `esim` (HYFE menu)
 #
-# Sejak versi 0.1.x hyfetrial otomatis membaca file ini kalau ada.
-# Tidak perlu lagi `--config /etc/hyfetrial/config` setiap kali jalan.
+# Sejak versi 0.2.0 hyfetrial dilebur ke dalam CLI `esim`. Semua wizard
+# config diakses via menu interaktif `esim` -> opsi 7 (Klaim eSIM Trial
+# HYFE) -> submenu config. Path file ini tidak berubah supaya config lama
+# tetap kompatibel.
 #
-# Cara isi cepat (tanpa edit file):
-#   hyfetrial --new-config        # wizard pertama kali / partial edit
-#   hyfetrial --captcha-config    # update mode + API key captcha saja
-#   hyfetrial --imap-config       # update server IMAP saja
-#   hyfetrial --email-config      # tambah/hapus email + App Password
-#   hyfetrial --config            # lihat config aktif (password ter-mask)
+# Cara isi cepat (tanpa edit file): jalankan `esim`, pilih menu 7, lalu:
+#   submenu 5 - Setup config (wizard awal full)
+#   submenu 6 - Edit captcha config (mode + API key)
+#   submenu 7 - Edit IMAP config (URL/folder/subject/timeout)
+#   submenu 8 - Edit email config (multi-akun + App Password)
+#   submenu 9 - Lihat config aktif (password ter-mask)
 #
-# Setelah config terisi, cukup:
-#   hyfetrial
+# Setelah config terisi:
+#   submenu 1 - Klaim sekarang (interaktif)
+#   submenu 3 - Setup Klaim Cepat (preferences buat klaim semi-otomatis)
+#   submenu 4 - Klaim Cepat (pakai preferences di atas)
 
 # ---------- captcha ----------
 # Pilih salah satu mode:
@@ -67,14 +71,28 @@
 #HYFE_IMAP_PASS=app-password-anda
 
 # ---------- EID accounts (multi) ----------
-# Saved EIDs untuk device yang Anda pakai klaim. Saat hyfetrial jalan
-# interaktif, prompt EID akan menampilkan daftar ini sebagai menu, plus:
+# Saved EIDs untuk device yang Anda pakai klaim. Saat `esim` menu HYFE
+# jalan interaktif, prompt EID akan menampilkan daftar ini sebagai menu,
+# plus:
 #   N+1) edit 3 digit terakhir (untuk nomor seri yang berurutan)
-#   N+2) ketik manual (akan ditawarkan auto-save)
+#   N+2) edit 4 digit terakhir
+#   N+3) ketik manual (akan ditawarkan auto-save)
 # Tambahkan/hapus pasangan ini lewat: edit langsung file ini, atau jawab
 # "Y" pada prompt save di mode interaktif.
 #HYFE_EID_1=89049032007208882600178661005175
 #HYFE_EID_2=89049032007208882600178661005200
+
+# ---------- klaim cepat (HYFE_QUICK_*) ----------
+# Preferences buat fitur "Klaim Cepat" (esim menu 7 -> submenu 4). Otomatis
+# di-set lewat wizard "Setup Klaim Cepat" (submenu 3). Tidak perlu di-edit
+# manual; di sini cuma supaya format-nya keliatan.
+#
+#HYFE_QUICK_EMAIL_SLOT=1                                 # slot dari HYFE_EMAIL_*
+#HYFE_QUICK_EID=89049032007208882600178661005200         # full EID (bisa hasil edit-tail)
+#HYFE_QUICK_CAPTCHA_MODE=2captcha                        # manual/2captcha/anticaptcha/capsolver/nextcaptcha
+#HYFE_QUICK_OTP_MODE=imap                                # imap/manual
+#HYFE_QUICK_PATTERN=                                     # kosong = random page
+#HYFE_QUICK_AUTO_PICK=1                                  # 1=auto-pick MSISDN pertama, 0=tetap pilih dari list
 
 # ---------- misc ----------
 #HYFE_VERBOSE=0
