@@ -2004,14 +2004,16 @@ hyfe_menu() {
     done
 }
 
-# Render a single menu item row inside the gold L-box: ║  N  Label  ║
+# Render a single menu item row inside the gold L-box: ║  N)  Label  ║
 # Args: NUM LABEL [BORDER_COLOR] [LABEL_COLOR]
+# Visible width = 65 chars (matches BOX_WIDTH):
+#   ║(1) + 2sp + N(1) + )(1) + 2sp + LABEL(55) + 2sp + ║(1) = 65
 _hyfe_menu_item() {
     _n="$1"; _l="$2"
     _bc="${3:-$XL_GOLD}"
     _lc="${4:-$WHITE}"
-    _l="$(trim_text "$_l" 56)"
-    printf '%b║%b  %b%s)%b  %b%-56s%b  %b║%b\n' \
+    _l="$(trim_text "$_l" 55)"
+    printf '%b║%b  %b%s)%b  %b%-55s%b  %b║%b\n' \
         "$_bc" "$RESET" \
         "$BOLD$XL_GOLD_LIGHT" "$_n" "$RESET" \
         "$_lc" "$_l" "$RESET" \
