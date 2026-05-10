@@ -76,12 +76,32 @@ if [ -t 1 ]; then
         BG_YELLOW='\033[43m'
         BG_BLACK='\033[40m'
         BG_WHITE='\033[47m'
+        # XL Prepaid (banner main esim) — gradient blue: terang → tengah → gelap
+        XL_BLUE_LIGHT='\033[38;5;75m'
+        XL_BLUE_MID='\033[38;5;39m'
+        XL_BLUE_DARK='\033[38;5;33m'
+        # XL Prioritas (banner submenu HYFE) — gold + bg hitam
+        XL_GOLD='\033[38;5;220m'
+        XL_GOLD_DARK='\033[38;5;178m'
+        XL_GOLD_LIGHT='\033[38;5;226m'
+        # Section accents (HYFE submenu sections)
+        SEC_PURPLE='\033[38;5;141m'
+        SEC_LAVENDER='\033[38;5;183m'
+        SEC_TEAL='\033[38;5;51m'
+        SEC_LIME='\033[38;5;154m'
+        SEC_PINK='\033[38;5;213m'
+        SEC_ORANGE='\033[38;5;208m'
+        SEC_SKY='\033[38;5;117m'
 else
         RED=''; GREEN=''; BLUE=''; CYAN=''; YELLOW=''; MAGENTA=''
         BOLD=''; RESET=''; BRED=''; BGREEN=''; BYELLOW=''; BBLUE=''
         BMAGENTA=''; BCYAN=''; WHITE=''; DIM=''; ITALIC=''; UNDERLINE=''
         BG_BLUE=''; BG_CYAN=''; BG_MAGENTA=''; BG_RED=''; BG_GREEN=''
         BG_YELLOW=''; BG_BLACK=''; BG_WHITE=''
+        XL_BLUE_LIGHT=''; XL_BLUE_MID=''; XL_BLUE_DARK=''
+        XL_GOLD=''; XL_GOLD_DARK=''; XL_GOLD_LIGHT=''
+        SEC_PURPLE=''; SEC_LAVENDER=''; SEC_TEAL=''; SEC_LIME=''
+        SEC_PINK=''; SEC_ORANGE=''; SEC_SKY=''
 fi
 
 BOX_WIDTH=65
@@ -193,6 +213,167 @@ box_menu_item() {
 
 box_menu_sep() {
         printf '%b║%b%s%b║%b\n' "$BCYAN" "$DIM" "$(repeat_char '.' $((BOX_WIDTH - 2)))" "$BCYAN" "$RESET"
+}
+
+# ─── L-mixed box (double top + rounded bottom) ────────────────────────────────
+# Border style L dari banner demo: ╔══╗ atas, ║║ samping, ╰──╯ bawah rounded.
+# Pakai untuk section box di submenu HYFE dengan accent color berbeda.
+# Argumen pertama (color) dapat dioverride; default BCYAN sesuai esim asli.
+
+lbox_top() {
+        color="${1:-$BCYAN}"
+        printf '%b╔%s╗%b\n' "$color" "$(repeat_char '═' $((BOX_WIDTH - 2)))" "$RESET"
+}
+
+lbox_bottom() {
+        color="${1:-$BCYAN}"
+        printf '%b╰%s╯%b\n' "$color" "$(repeat_char '─' $((BOX_WIDTH - 2)))" "$RESET"
+}
+
+lbox_sep() {
+        color="${1:-$BCYAN}"
+        printf '%b╠%s╣%b\n' "$color" "$(repeat_char '═' $((BOX_WIDTH - 2)))" "$RESET"
+}
+
+lbox_text() {
+        text="$1"; color="$2"; border="${3:-$BCYAN}"
+        text="$(trim_text "$text" $((BOX_WIDTH - 4)))"
+        len=${#text}
+        inner=$((BOX_WIDTH - 2))
+        left=$(((inner - len) / 2))
+        right=$((inner - len - left))
+        printf '%b║%b%*s%b%s%b%*s%b║%b\n' \
+                "$border" "$RESET" "$left" '' "$color" "$text" "$RESET" \
+                "$right" '' "$border" "$RESET"
+}
+
+lbox_kv() {
+        key="$1"; val="$2"
+        kc="${3:-$CYAN}"; vc="${4:-$WHITE}"; border="${5:-$BCYAN}"
+        val="$(pad_right "$val" 36)"
+        key="$(pad_right "$key" 22)"
+        printf '%b║%b %b%s%b %b│%b %b%s%b %b║%b\n' \
+                "$border" "$RESET" \
+                "$kc$BOLD" "$key" "$RESET" \
+                "$border" "$RESET" "$vc" "$val" "$RESET" \
+                "$border" "$RESET"
+}
+
+# Padded text row for L-box (left-aligned).
+lbox_item() {
+        text="$1"; color="${2:-$WHITE}"; border="${3:-$BCYAN}"
+        text="$(trim_text "$text" $((BOX_WIDTH - 4)))"
+        printf '%b║%b %b%-61s%b %b║%b\n' \
+                "$border" "$RESET" "$color" "$text" "$RESET" "$border" "$RESET"
+}
+
+# Empty padded line for spacing inside an L-box.
+lbox_blank() {
+        border="${1:-$BCYAN}"
+        printf '%b║%*s║%b\n' "$border" $((BOX_WIDTH - 2)) '' "$RESET"
+}
+
+# ─── 2-column MSISDN box (proper symmetric junctions) ─────────────────────────
+# Layout: ║ idx  msisdn   ║ idx  msisdn   ║   total = 65 chars
+# Inner = 63. Center divider = 1 char. Each cell = (63-1)/2 = 31 chars.
+
+mbox_top() {
+        color="${1:-$BCYAN}"
+        _w=31
+        printf '%b╔%s╦%s╗%b\n' "$color" \
+                "$(repeat_char '═' "$_w")" "$(repeat_char '═' "$_w")" "$RESET"
+}
+
+mbox_sep() {
+        color="${1:-$BCYAN}"
+        _w=31
+        printf '%b╠%s╬%s╣%b\n' "$color" \
+                "$(repeat_char '═' "$_w")" "$(repeat_char '═' "$_w")" "$RESET"
+}
+
+mbox_bottom() {
+        color="${1:-$BCYAN}"
+        _w=31
+        printf '%b╚%s╩%s╝%b\n' "$color" \
+                "$(repeat_char '═' "$_w")" "$(repeat_char '═' "$_w")" "$RESET"
+}
+
+# Render one row with up to 2 cells. Each cell: idx (right-aligned 2 char)
+# + 2sp + msisdn padded to 25 chars. Pass empty strings for missing right
+# cell on odd-length lists.
+mbox_row() {
+        l_idx="$1"; l_val="$2"; r_idx="$3"; r_val="$4"
+        color="${5:-$BCYAN}"; idx_c="${6:-$BOLD$BYELLOW}"; val_c="${7:-$BGREEN}"
+        # Right-align idx to width 2 so "1" → " 1" and "10" → "10" align.
+        l_idx_p=$(printf '%2s' "$l_idx")
+        r_idx_p=$(printf '%2s' "$r_idx")
+        l_val_p="$(pad_right "$l_val" 25)"
+        r_val_p="$(pad_right "$r_val" 25)"
+        printf '%b║%b %b%s%b  %b%s%b %b║%b %b%s%b  %b%s%b %b║%b\n' \
+                "$color" "$RESET" "$idx_c" "$l_idx_p" "$RESET" \
+                "$val_c" "$l_val_p" "$RESET" \
+                "$color" "$RESET" "$idx_c" "$r_idx_p" "$RESET" \
+                "$val_c" "$r_val_p" "$RESET" \
+                "$color" "$RESET"
+}
+
+# Title row spanning both cells (no center divider through the text).
+mbox_title() {
+        text="$1"; color="${2:-$BOLD$WHITE}"; border="${3:-$BCYAN}"
+        # Inner = 63 (no center divider for title; treat as one wide cell).
+        text="$(trim_text "$text" $((BOX_WIDTH - 4)))"
+        len=${#text}
+        inner=$((BOX_WIDTH - 2))
+        left=$(((inner - len) / 2))
+        right=$((inner - len - left))
+        printf '%b║%b%*s%b%s%b%*s%b║%b\n' \
+                "$border" "$RESET" "$left" '' "$color" "$text" "$RESET" \
+                "$right" '' "$border" "$RESET"
+}
+
+# Title-row separator that joins to top via ╦ (replace ═══╦═══ with full bar
+# ending in ╦). Used between mbox_top and the row that splits into 2 cells.
+mbox_title_sep() {
+        color="${1:-$BCYAN}"
+        _w=31
+        # Single bar with ╦ in the middle to start the 2-col split.
+        printf '%b╠%s╦%s╣%b\n' "$color" \
+                "$(repeat_char '═' "$_w")" "$(repeat_char '═' "$_w")" "$RESET"
+}
+
+# Top row that has no split (single horizontal across).
+mbox_full_top() {
+        color="${1:-$BCYAN}"
+        printf '%b╔%s╗%b\n' "$color" "$(repeat_char '═' $((BOX_WIDTH - 2)))" "$RESET"
+}
+
+# ─── XL Banner art (ESIM main + HYFE submenu) ─────────────────────────────────
+# ESIM banner: 6-row mini-block ASCII "ESIM" with gradient blue (XL Prepaid).
+# Top 2 rows = light blue, mid 2 = mid blue, bottom 2 = dark blue.
+esim_main_banner() {
+        printf '\n'
+        printf '%b  ███████╗███████╗██╗███╗   ███╗%b\n' "$BOLD$XL_BLUE_LIGHT" "$RESET"
+        printf '%b  ██╔════╝██╔════╝██║████╗ ████║%b\n' "$BOLD$XL_BLUE_LIGHT" "$RESET"
+        printf '%b  █████╗  ███████╗██║██╔████╔██║%b\n' "$BOLD$XL_BLUE_MID" "$RESET"
+        printf '%b  ██╔══╝  ╚════██║██║██║╚██╔╝██║%b\n' "$BOLD$XL_BLUE_MID" "$RESET"
+        printf '%b  ███████╗███████║██║██║ ╚═╝ ██║%b\n' "$BOLD$XL_BLUE_DARK" "$RESET"
+        printf '%b  ╚══════╝╚══════╝╚═╝╚═╝     ╚═╝%b\n' "$BOLD$XL_BLUE_DARK" "$RESET"
+        printf '%b   M A N A G E R    C L I  •  v0.2.0%b\n' "$BOLD$WHITE" "$RESET"
+        printf '%b   lpac  ·  openwrt  ·  esim  trial  hyfe%b\n\n' "$DIM$ITALIC$WHITE" "$RESET"
+}
+
+# HYFE banner: 6-row mini-block ASCII "HYFE" with solid gold + bg hitam
+# (XL Prioritas).
+hyfe_main_banner() {
+        printf '\n'
+        _g="$BOLD$XL_GOLD$BG_BLACK"
+        printf '%b  ██╗  ██╗██╗   ██╗███████╗███████╗  %b\n' "$_g" "$RESET"
+        printf '%b  ██║  ██║╚██╗ ██╔╝██╔════╝██╔════╝  %b\n' "$_g" "$RESET"
+        printf '%b  ███████║ ╚████╔╝ █████╗  █████╗    %b\n' "$_g" "$RESET"
+        printf '%b  ██╔══██║  ╚██╔╝  ██╔══╝  ██╔══╝    %b\n' "$_g" "$RESET"
+        printf '%b  ██║  ██║   ██║   ██║     ███████╗  %b\n' "$_g" "$RESET"
+        printf '%b  ╚═╝  ╚═╝   ╚═╝   ╚═╝     ╚══════╝  %b\n' "$_g" "$RESET"
+        printf '%b   Klaim eSIM Trial XL Prioritas%b\n\n' "$BOLD$WHITE" "$RESET"
 }
 
 # ─── Table drawing helpers ────────────────────────────────────────────────────
@@ -1274,18 +1455,15 @@ check_requirements() {
 main_menu() {
         clear_screen
         while :; do
-                printf '\n'
+                esim_main_banner
                 printf '%b╔%s╗%b\n' "$BCYAN" "$(repeat_char '═' $((BOX_WIDTH - 2)))" "$RESET"
-                box_center "L850GL  eSIM  Manager" "$BOLD$BCYAN$BG_BLACK" "$BCYAN"
-                box_center "lpac  .  openwrt  .  esim" "$DIM$ITALIC" "$BCYAN"
-                printf '%b╠%s╣%b\n' "$BCYAN" "$(repeat_char '═' $((BOX_WIDTH - 2)))" "$RESET"
                 box_item "1" "INFO EID & eUICC" "$BOLD$BYELLOW" "$BCYAN" "$BCYAN"
                 box_item "2" "Profile List  ( Switch / Delete )" "$BOLD$BYELLOW" "$BMAGENTA" "$BCYAN"
                 box_item "3" "Download eSIM Profile" "$BOLD$BYELLOW" "$BGREEN" "$BCYAN"
                 box_item "4" "Process Pending Notification" "$BOLD$BYELLOW" "$BBLUE" "$BCYAN"
                 box_item "5" "LPAC Version" "$BOLD$BYELLOW" "$WHITE" "$BCYAN"
                 box_item "6" "Recovery SIM Missing" "$BOLD$BYELLOW" "$BRED" "$BCYAN"
-                box_item "7" "Klaim eSIM Trial HYFE (XL Prioritas)" "$BOLD$BYELLOW" "$BMAGENTA" "$BCYAN"
+                box_item "7" "Klaim eSIM Trial HYFE (XL Prioritas)" "$BOLD$XL_GOLD" "$XL_GOLD" "$BCYAN"
                 printf '%b╠%s╣%b\n' "$BCYAN" "$(repeat_char '═' $((BOX_WIDTH - 2)))" "$RESET"
                 box_item "0" "Exit" "$BOLD$DIM" "$DIM" "$BCYAN"
                 printf '%b╚%s╝%b\n' "$BCYAN" "$(repeat_char '═' $((BOX_WIDTH - 2)))" "$RESET"
