@@ -680,11 +680,25 @@ _bootstrap_config_if_missing() {
     [ -z "${CONFIG_FILE:-}" ] || return 0
     _path=$(config_default_path)
     [ -f "$_path" ] && return 0
-    {
-        printf '=== setup pertama ===\n'
-        printf 'Belum ada config di %s.\n' "$_path"
-        printf 'Tanpa config, setting captcha/IMAP/email akan diminta tiap run.\n\n'
-    } >&2
+    if command -v lbox_top >/dev/null 2>&1; then
+        {
+            printf '\n'
+            lbox_top "$SEC_ORANGE"
+            lbox_text "SETUP PERTAMA" "$BOLD$WHITE" "$SEC_ORANGE"
+            lbox_sep "$SEC_ORANGE"
+            lbox_item "Belum ada config di:" "$WHITE" "$SEC_ORANGE"
+            lbox_item "  $_path" "$BOLD$WHITE" "$SEC_ORANGE"
+            lbox_item "Tanpa config, setting captcha/IMAP/email" "$DIM$WHITE" "$SEC_ORANGE"
+            lbox_item "akan diminta tiap run." "$DIM$WHITE" "$SEC_ORANGE"
+            lbox_bottom "$SEC_ORANGE"
+        } >&2
+    else
+        {
+            printf '=== setup pertama ===\n'
+            printf 'Belum ada config di %s.\n' "$_path"
+            printf 'Tanpa config, setting captcha/IMAP/email akan diminta tiap run.\n\n'
+        } >&2
+    fi
     _ans=""
     _prompt _ans "Buat config dan jalankan wizard setup sekarang? [Y/n]" "Y" 0 1
     case "$_ans" in
@@ -717,10 +731,22 @@ interactive_prompt() {
         die "interactive mode butuh terminal (stdin bukan TTY)"
     fi
     INTERACTIVE=1
-    {
-        printf '\n=== hyfetrial: mode interaktif ===\n'
-        printf '(tekan Enter untuk pakai nilai default kalau ada)\n\n'
-    } >&2
+    if command -v lbox_top >/dev/null 2>&1; then
+        {
+            printf '\n'
+            lbox_top "$XL_GOLD"
+            lbox_text "MODE INTERAKTIF" "$BOLD$WHITE" "$XL_GOLD"
+            lbox_sep "$XL_GOLD"
+            lbox_item "Tekan Enter untuk pakai nilai default" "$DIM$WHITE" "$XL_GOLD"
+            lbox_item "(kalau ada)" "$DIM$WHITE" "$XL_GOLD"
+            lbox_bottom "$XL_GOLD"
+        } >&2
+    else
+        {
+            printf '\n=== hyfetrial: mode interaktif ===\n'
+            printf '(tekan Enter untuk pakai nilai default kalau ada)\n\n'
+        } >&2
+    fi
     _bootstrap_config_if_missing
     # _name_mode / _wa_mode are populated by _prompt_choice via `eval`; declare
     # them up-front so shellcheck (SC2154) recognises them as locally assigned.
@@ -803,17 +829,35 @@ auto_interactive() {
 
 confirm() {
     [ "$ASSUME_YES" = 1 ] && return 0
-    {
-        printf '\n'
-        printf '  Akan submit data berikut:\n'
-        printf '    nama   : %s\n' "$NAME"
-        printf '    wa     : 62%s\n' "$WHATSAPP"
-        printf '    email  : %s\n' "$EMAIL"
-        printf '    msisdn : %s\n' "$SELECTED_MSISDN"
-        printf '    eid    : %s\n' "$EID"
-        printf '\n'
-        printf '  Lanjut? [y/N] '
-    } >&2
+    # Render confirmation summary inside an L-box on stderr so it stays
+    # consistent with the rest of the submenu (everything-in-boxes).
+    if command -v lbox_top >/dev/null 2>&1; then
+        {
+            printf '\n'
+            lbox_top "$XL_GOLD"
+            lbox_text "KONFIRMASI - akan submit data berikut" "$BOLD$WHITE" "$XL_GOLD"
+            lbox_sep "$XL_GOLD"
+            lbox_kv "nama"   "$NAME"            "$XL_GOLD" "$WHITE" "$XL_GOLD"
+            lbox_kv "wa"     "62$WHATSAPP"      "$XL_GOLD" "$WHITE" "$XL_GOLD"
+            lbox_kv "email"  "$EMAIL"           "$XL_GOLD" "$WHITE" "$XL_GOLD"
+            lbox_kv "msisdn" "$SELECTED_MSISDN" "$XL_GOLD" "$WHITE" "$XL_GOLD"
+            lbox_kv "eid"    "$EID"             "$XL_GOLD" "$WHITE" "$XL_GOLD"
+            lbox_bottom "$XL_GOLD"
+            printf '  %b➤  Lanjut? [y/N]:%b ' "$BOLD$XL_GOLD" "$RESET"
+        } >&2
+    else
+        {
+            printf '\n'
+            printf '  Akan submit data berikut:\n'
+            printf '    nama   : %s\n' "$NAME"
+            printf '    wa     : 62%s\n' "$WHATSAPP"
+            printf '    email  : %s\n' "$EMAIL"
+            printf '    msisdn : %s\n' "$SELECTED_MSISDN"
+            printf '    eid    : %s\n' "$EID"
+            printf '\n'
+            printf '  Lanjut? [y/N] '
+        } >&2
+    fi
     IFS= read -r ans
     case "$ans" in
         y|Y|yes|YES) return 0 ;;
@@ -921,43 +965,86 @@ _hyfe_step() {
     section_header "$1" "${2:-$BCYAN}"
 }
 
+# L-mixed status / info boxes — semua output HYFE submenu lewat helper ini
+# supaya konsisten box-everywhere principle (tidak ada raw printf di luar
+# kotak). Border default mengikuti theme XL_GOLD untuk submenu Prioritas.
+
+# Section header L-mixed: ╔══╗  ║ TITLE ║  ╰──╯
+_hyfe_section() {
+    title="$1"; color="${2:-$XL_GOLD}"
+    printf '\n'
+    lbox_top "$color"
+    lbox_text "$title" "$BOLD$WHITE" "$color"
+    lbox_bottom "$color"
+}
+
 _hyfe_ok() {
-    box_top
-    box_text "$1" "$BOLD$BGREEN"
-    box_bottom
+    printf '\n'
+    lbox_top "$BGREEN"
+    lbox_text "$1" "$BOLD$BGREEN" "$BGREEN"
+    lbox_bottom "$BGREEN"
 }
 
 _hyfe_fail() {
-    box_top
-    box_text "$1" "$BOLD$BRED"
-    box_bottom
+    printf '\n'
+    lbox_top "$BRED"
+    lbox_text "$1" "$BOLD$BRED" "$BRED"
+    lbox_bottom "$BRED"
 }
 
+_hyfe_warn() {
+    printf '\n'
+    lbox_top "$BYELLOW"
+    lbox_text "$1" "$BOLD$BYELLOW" "$BYELLOW"
+    lbox_bottom "$BYELLOW"
+}
+
+# Render multi-line message inside an L-box. Each remaining argument is one
+# line (left-aligned, trimmed to box width).
+_hyfe_msg_box() {
+    color="$1"; title="$2"; shift 2
+    printf '\n'
+    lbox_top "$color"
+    lbox_text "$title" "$BOLD$WHITE" "$color"
+    lbox_sep "$color"
+    for _line in "$@"; do
+        lbox_item "$_line" "$WHITE" "$color"
+    done
+    lbox_bottom "$color"
+}
+
+# Key-value summary box. Args: TITLE COLOR KEY1 VAL1 KEY2 VAL2 ...
 _hyfe_info_box() {
     title="$1"; shift
-    box_top
-    box_text "$title" "$BOLD$BYELLOW"
-    box_sep
+    color="${HYFE_INFO_COLOR:-$XL_GOLD}"
+    printf '\n'
+    lbox_top "$color"
+    lbox_text "$title" "$BOLD$WHITE" "$color"
+    lbox_sep "$color"
     while [ "$#" -ge 2 ]; do
-        printf '%b║%b  %b%-18s%b %b%-42s%b %b║%b\n' \
-            "$BCYAN" "$RESET" "$BOLD$BCYAN" "$1" "$RESET" \
-            "$WHITE" "$(trim_text "$2" 42)" "$RESET" "$BCYAN" "$RESET"
+        lbox_kv "$1" "$2" "$XL_GOLD" "$WHITE" "$color"
         shift 2
     done
-    box_bottom
+    lbox_bottom "$color"
 }
 
-# Banner pembuka submenu Klaim HYFE.
+# Banner pembuka submenu Klaim HYFE — XL Prioritas gold + bg hitam.
 _hyfe_banner() {
-    box_top
-    box_text "KLAIM eSIM TRIAL HYFE" "$BOLD$BMAGENTA"
-    box_text "(XL Prioritas)" "$DIM$WHITE"
-    box_bottom
+    if command -v hyfe_main_banner >/dev/null 2>&1; then
+        hyfe_main_banner
+    else
+        # Fallback for standalone use without esim wrapper.
+        printf '\n'
+        lbox_top "$XL_GOLD"
+        lbox_text "KLAIM eSIM TRIAL HYFE" "$BOLD$XL_GOLD" "$XL_GOLD"
+        lbox_text "(XL Prioritas)" "$DIM$WHITE" "$XL_GOLD"
+        lbox_bottom "$XL_GOLD"
+    fi
 }
 
 # Banner pembuka per-action di dalam submenu.
 _hyfe_action_header() {
-    section_header "$1" "${2:-$BMAGENTA}"
+    _hyfe_section "$1" "${2:-$XL_GOLD}"
 }
 
 # ============================================================================
@@ -969,11 +1056,159 @@ hyfe_show_config() {
     _path="${CONFIG_FILE:-$(config_default_path)}"
     if [ ! -f "$_path" ]; then
         _hyfe_fail "Config $_path belum ada"
-        printf '\n  %bGunakan opsi 5 (Setup config) untuk bikin baru.%b\n' \
-            "$DIM" "$RESET"
+        _hyfe_msg_box "$DIM$BCYAN" "Hint" \
+            "Gunakan opsi 5 (Setup config) untuk bikin config baru." \
+            "Atau opsi 6/7/8 untuk edit field tertentu."
         return 0
     fi
-    config_show "$_path"
+    _hyfe_msg_box "$DIM$BCYAN" "Source File" "$_path"
+    _hyfe_show_config_sections "$_path"
+}
+
+# Render per-context section boxes for the active config. Each section uses
+# a different accent color to make scanning easier:
+#   • CAPTCHA   → SEC_PINK    (api keys per provider)
+#   • OTP/IMAP  → SEC_SKY     (mailbox setup)
+#   • EMAIL     → SEC_LIME    (multi-akun slots)
+#   • EID       → SEC_LAVENDER (multi-EID slots)
+#   • QUICK     → XL_GOLD     (klaim cepat preferences)
+_hyfe_show_config_sections() {
+    _f="$1"
+    # Snapshot current shell vars before sourcing config so we don't leak
+    # mutations beyond this function. We re-source the config here to read
+    # raw values (config_show masks too aggressively for KEY display vs the
+    # 4...4 fingerprint we want).
+    _saved_mode="${HYFE_CAPTCHA_MODE:-}"
+    _saved_otp="${HYFE_OTP_MODE:-}"
+    # shellcheck disable=SC1090
+    . "$_f" 2>/dev/null || true
+
+    # ─── CAPTCHA section ───
+    _mode="${HYFE_CAPTCHA_MODE:-(unset)}"
+    _hyfe_msg_box "$SEC_PINK" "CAPTCHA" \
+        "Mode aktif      : $_mode" \
+        "Timeout solver  : ${HYFE_CAPTCHA_TIMEOUT:-180}s"
+    # Per-provider key list, masked.
+    lbox_top "$SEC_PINK"
+    lbox_text "API Keys per Provider" "$BOLD$WHITE" "$SEC_PINK"
+    lbox_sep "$SEC_PINK"
+    for _prov in nextcaptcha 2captcha anticaptcha capsolver; do
+        _kvar="HYFE_CAPTCHA_KEY_$(printf '%s' "$_prov" | tr '[:lower:]' '[:upper:]')"
+        _kval=$(eval "printf '%s' \"\${$_kvar:-}\"")
+        _kdisp=$(_hyfe_mask_key "$_kval")
+        # Highlight active mode in green; others dim.
+        if [ "$_prov" = "$_mode" ]; then
+            lbox_kv "$_prov *" "$_kdisp" "$BGREEN" "$WHITE" "$SEC_PINK"
+        else
+            lbox_kv "$_prov" "$_kdisp" "$DIM$WHITE" "$DIM$WHITE" "$SEC_PINK"
+        fi
+    done
+    lbox_bottom "$SEC_PINK"
+
+    # ─── OTP / IMAP section ───
+    _otp="${HYFE_OTP_MODE:-(unset)}"
+    _hyfe_msg_box "$SEC_SKY" "OTP / IMAP" \
+        "Mode OTP        : $_otp"
+    if [ "$_otp" = "imap" ] || [ -n "${HYFE_IMAP_URL:-}" ]; then
+        _ipass=$(_hyfe_mask_pass "${HYFE_IMAP_PASS:-}")
+        lbox_top "$SEC_SKY"
+        lbox_text "IMAP Settings" "$BOLD$WHITE" "$SEC_SKY"
+        lbox_sep "$SEC_SKY"
+        lbox_kv "URL"     "${HYFE_IMAP_URL:-(unset)}"     "$SEC_SKY" "$WHITE" "$SEC_SKY"
+        lbox_kv "User"    "${HYFE_IMAP_USER:-(unset)}"    "$SEC_SKY" "$WHITE" "$SEC_SKY"
+        lbox_kv "Pass"    "$_ipass"                       "$SEC_SKY" "$WHITE" "$SEC_SKY"
+        lbox_kv "Folder"  "${HYFE_IMAP_FOLDER:-INBOX}"    "$SEC_SKY" "$WHITE" "$SEC_SKY"
+        lbox_kv "Subject" "${HYFE_IMAP_SUBJECT:-(default)}" "$SEC_SKY" "$WHITE" "$SEC_SKY"
+        lbox_kv "Timeout" "${HYFE_IMAP_TIMEOUT:-60}s"     "$SEC_SKY" "$WHITE" "$SEC_SKY"
+        lbox_bottom "$SEC_SKY"
+    fi
+
+    # ─── EMAIL slots section ───
+    _ec=$(_config_email_count "$_f")
+    [ -n "$_ec" ] || _ec=0
+    lbox_top "$SEC_LIME"
+    lbox_text "EMAIL SLOTS ($_ec akun)" "$BOLD$WHITE" "$SEC_LIME"
+    lbox_sep "$SEC_LIME"
+    if [ "$_ec" -le 0 ]; then
+        lbox_item "(belum ada akun email tersimpan)" "$DIM$WHITE" "$SEC_LIME"
+    else
+        _i=1
+        while [ "$_i" -le "$_ec" ]; do
+            _e=$(eval "printf '%s' \"\${HYFE_EMAIL_$_i:-}\"")
+            _p=$(eval "printf '%s' \"\${HYFE_IMAP_PASS_$_i:-}\"")
+            _pmask=$(_hyfe_mask_pass "$_p")
+            lbox_kv "slot $_i" "$_e" "$SEC_LIME" "$WHITE" "$SEC_LIME"
+            lbox_kv "  | pass" "$_pmask" "$DIM$SEC_LIME" "$DIM$WHITE" "$SEC_LIME"
+            _i=$((_i + 1))
+        done
+    fi
+    lbox_bottom "$SEC_LIME"
+
+    # ─── EID slots section ───
+    _eid_count=$(_hyfe_count_eid_slots)
+    [ -n "$_eid_count" ] || _eid_count=0
+    lbox_top "$SEC_LAVENDER"
+    lbox_text "EID SLOTS ($_eid_count slot)" "$BOLD$WHITE" "$SEC_LAVENDER"
+    lbox_sep "$SEC_LAVENDER"
+    if [ "$_eid_count" -le 0 ]; then
+        lbox_item "(belum ada EID tersimpan)" "$DIM$WHITE" "$SEC_LAVENDER"
+    else
+        _i=1
+        while [ "$_i" -le "$_eid_count" ]; do
+            _v=$(eval "printf '%s' \"\${HYFE_EID_$_i:-}\"")
+            lbox_kv "slot $_i" "$(_hyfe_eid_mask "$_v")" "$SEC_LAVENDER" "$WHITE" "$SEC_LAVENDER"
+            _i=$((_i + 1))
+        done
+    fi
+    lbox_bottom "$SEC_LAVENDER"
+
+    # ─── QUICK SETTINGS section ───
+    if [ -n "${HYFE_QUICK_EMAIL_SLOT:-}${HYFE_QUICK_EID:-}${HYFE_QUICK_CAPTCHA_MODE:-}" ]; then
+        _qslot="${HYFE_QUICK_EMAIL_SLOT:-(unset)}"
+        _qemail=""
+        if [ "$_qslot" != "(unset)" ]; then
+            _qemail=$(eval "printf '%s' \"\${HYFE_EMAIL_$_qslot:-}\"")
+        fi
+        _qauto="${HYFE_QUICK_AUTO_PICK:-0}"
+        if [ "$_qauto" = "1" ]; then _qauto_d="ya"; else _qauto_d="tidak"; fi
+        lbox_top "$XL_GOLD"
+        lbox_text "QUICK SETTINGS (Klaim Cepat)" "$BOLD$WHITE" "$XL_GOLD"
+        lbox_sep "$XL_GOLD"
+        lbox_kv "Email slot"   "$_qslot ${_qemail:+($_qemail)}" "$XL_GOLD" "$WHITE" "$XL_GOLD"
+        lbox_kv "EID"          "$(_hyfe_eid_mask "${HYFE_QUICK_EID:-}")" "$XL_GOLD" "$WHITE" "$XL_GOLD"
+        lbox_kv "Captcha mode" "${HYFE_QUICK_CAPTCHA_MODE:-(unset)}" "$XL_GOLD" "$WHITE" "$XL_GOLD"
+        lbox_kv "OTP mode"     "${HYFE_QUICK_OTP_MODE:-(unset)}"     "$XL_GOLD" "$WHITE" "$XL_GOLD"
+        lbox_kv "Pattern"      "${HYFE_QUICK_PATTERN:-(random)}"     "$XL_GOLD" "$WHITE" "$XL_GOLD"
+        lbox_kv "Auto-pick"    "$_qauto_d"                            "$XL_GOLD" "$WHITE" "$XL_GOLD"
+        lbox_bottom "$XL_GOLD"
+    else
+        _hyfe_msg_box "$DIM$XL_GOLD" "QUICK SETTINGS (Klaim Cepat)" \
+            "(belum di-setup — jalankan opsi 3 dulu)"
+    fi
+
+    # Restore caller's mode so subsequent operations don't see config values.
+    HYFE_CAPTCHA_MODE="$_saved_mode"
+    HYFE_OTP_MODE="$_saved_otp"
+}
+
+# Mask helper: print first 4 + ... + last 4 of input. Empty / short strings
+# are returned as-is (or "(unset)" for empty).
+_hyfe_mask_key() {
+    _k="$1"
+    if [ -z "$_k" ]; then printf '(unset)'; return; fi
+    _kl=${#_k}
+    if [ "$_kl" -le 8 ]; then
+        printf '%s' "$(repeat_char '*' "$_kl")"
+        return
+    fi
+    _kh=$(printf '%s' "$_k" | cut -c 1-4)
+    _kt=$(printf '%s' "$_k" | cut -c $((_kl - 3))-)
+    printf '%s...%s' "$_kh" "$_kt"
+}
+
+_hyfe_mask_pass() {
+    if [ -z "$1" ]; then printf '(unset)'; return; fi
+    printf '********'
 }
 
 hyfe_setup_config() {
@@ -1060,9 +1295,17 @@ hyfe_list_numbers_menu() {
     _hyfe_ensure_config
     PATTERN=""
     if [ -t 0 ]; then
+        # Render the prompt inside its own L-box so even input lives inside
+        # a kotak (sesuai box-everywhere principle).
+        printf '\n'
+        lbox_top "$SEC_TEAL"
+        lbox_text "Pola Digit (filter MSISDN)" "$BOLD$WHITE" "$SEC_TEAL"
+        lbox_sep "$SEC_TEAL"
+        lbox_item "Kosongkan untuk random page." "$DIM$WHITE" "$SEC_TEAL"
+        lbox_item "Atau ketik 1-5 digit (mis. 1122 / 55330)." "$DIM$WHITE" "$SEC_TEAL"
+        lbox_bottom "$SEC_TEAL"
         while :; do
-            printf '\n  %bPola digit (kosong = random page, 1-5 digit):%b ' \
-                "$BCYAN" "$RESET"
+            printf '  %b➤  Pola digit:%b ' "$BOLD$SEC_TEAL" "$RESET"
             if ! IFS= read -r _patin; then
                 printf '\n'
                 return 0
@@ -1071,14 +1314,12 @@ hyfe_list_numbers_menu() {
             case "$_patin" in
                 "") PATTERN=""; break ;;
                 *[!0-9]*)
-                    printf '  %b! Pola harus digit angka saja.%b\n' \
-                        "$BRED" "$RESET"
+                    _hyfe_warn "Pola harus digit angka saja."
                     continue
                     ;;
                 *)
                     if [ "${#_patin}" -gt 5 ]; then
-                        printf '  %b! Maksimal 5 digit (input: %d).%b\n' \
-                            "$BRED" "${#_patin}" "$RESET"
+                        _hyfe_warn "Maksimal 5 digit (input: ${#_patin})"
                         continue
                     fi
                     PATTERN="$_patin"
@@ -1088,77 +1329,126 @@ hyfe_list_numbers_menu() {
         done
     fi
     # api_auth / api_session call die() (exit 1) on failure; wrap in a
-    # subshell so a failed listing doesn't kill the entire esim CLI. Capture
-    # the raw `msisdn\tencrypt` lines into a tempfile; we render them with
-    # the esim box theme below (numbered menu, no encrypt blob shown). We
-    # also capture stderr to a separate tempfile so log_info/verbose noise
-    # doesn't mangle the box on success, but die()/log_error diagnostics
-    # are still surfaced to the user when the API call fails.
-    # Tempfile keyed by PID + epoch for portability (POSIX sh: no $RANDOM).
+    # subshell so a failed listing doesn't kill the entire esim CLI. Stderr
+    # goes to a separate tempfile so we can surface upstream errors on
+    # failure (PR#3 fix).
     _tmp="${TMPDIR:-/tmp}/hyfe_msisdn.$$.$(date +%s 2>/dev/null || printf '0')"
-    _tmp_err="${_tmp}.err"
+    _err="${_tmp}.err"
     : > "$_tmp" 2>/dev/null || _tmp="${TMPDIR:-/tmp}/hyfe_msisdn.$$"
-    : > "$_tmp_err" 2>/dev/null || _tmp_err="${TMPDIR:-/tmp}/hyfe_msisdn.$$.err"
+    : > "$_err" 2>/dev/null || _err="${TMPDIR:-/tmp}/hyfe_msisdn.$$.err"
     (
         set -eu
         _hyfe_init_cookies
         trap '_hyfe_cleanup_cookies' EXIT INT TERM
         list_numbers_mode
-    ) >"$_tmp" 2>"$_tmp_err"
+    ) >"$_tmp" 2>"$_err"
     rc=$?
     if [ "$rc" -ne 0 ]; then
-        # Surface the captured stderr (api_auth/api_session/api_find_msisdn
-        # die/log_error messages) so the user can diagnose auth/network
-        # failures instead of just seeing "rc=N".
-        if [ -s "$_tmp_err" ]; then
-            printf '\n' >&2
-            cat "$_tmp_err" >&2 2>/dev/null
+        if [ -s "$_err" ]; then
+            # Surface upstream error inside a fail box (instead of /dev/null).
+            _hyfe_fail "Gagal ambil daftar MSISDN (rc=$rc)"
+            lbox_top "$BRED"
+            lbox_text "Upstream stderr" "$BOLD$WHITE" "$BRED"
+            lbox_sep "$BRED"
+            while IFS= read -r _eline; do
+                [ -n "$_eline" ] && lbox_item "$_eline" "$WHITE" "$BRED"
+            done <"$_err"
+            lbox_bottom "$BRED"
+        else
+            _hyfe_fail "Gagal ambil daftar MSISDN (rc=$rc)"
         fi
-        rm -f "$_tmp" "$_tmp_err" 2>/dev/null
-        _hyfe_fail "Gagal ambil daftar MSISDN (rc=$rc)"
+        rm -f "$_tmp" "$_err" 2>/dev/null
         return $rc
     fi
-    rm -f "$_tmp_err" 2>/dev/null
-    # Count non-empty lines (each row is "msisdn\tencrypt").
+    rm -f "$_err" 2>/dev/null
     _count=$(awk 'NF { n++ } END { print n + 0 }' "$_tmp" 2>/dev/null || printf '0')
     [ -n "$_count" ] || _count=0
     if [ "$_count" -le 0 ]; then
         rm -f "$_tmp" 2>/dev/null
-        printf '\n'
-        box_top
         if [ -n "$PATTERN" ]; then
-            box_text "Tidak ada MSISDN tersedia (pola: $PATTERN)" "$BOLD$BYELLOW"
+            _hyfe_warn "Tidak ada MSISDN tersedia (pola: $PATTERN)"
         else
-            box_text "Tidak ada MSISDN tersedia" "$BOLD$BYELLOW"
+            _hyfe_warn "Tidak ada MSISDN tersedia"
         fi
-        box_bottom
         return 0
     fi
-    # Render the styled list (numbered, formatted as 0xxx-xxxx-xxxx).
-    printf '\n'
-    box_top
+    # ─── Render 2-column symmetric MSISDN box ───
+    # Layout (BOX_WIDTH=65, cell width 31):
+    #   ╔═════════════════════════════════════════════════════════════╗   (full top)
+    #   ║         MSISDN TERSEDIA (10 nomor) - random page            ║   (title)
+    #   ╠══════════════════════════════╦══════════════════════════════╣   (split-down)
+    #   ║   1  0819-3255-3301          ║   2  0819-3255-3303          ║
+    #   ║   3  0819-3255-3304          ║   4  0819-3255-3305          ║
+    #   ╚══════════════════════════════╩══════════════════════════════╝   (split-up)
     if [ -n "$PATTERN" ]; then
-        box_text "MSISDN TERSEDIA ($_count nomor) — pola: $PATTERN" \
-            "$BOLD$WHITE"
+        _title="MSISDN TERSEDIA ($_count nomor) - pola: $PATTERN"
     else
-        box_text "MSISDN TERSEDIA ($_count nomor) — random page" \
-            "$BOLD$WHITE"
+        _title="MSISDN TERSEDIA ($_count nomor) - random page"
     fi
-    box_sep
-    _i=1
+    printf '\n'
+    mbox_full_top "$BCYAN"
+    mbox_title "$_title" "$BOLD$WHITE" "$BCYAN"
+    mbox_title_sep "$BCYAN"
+    # Read all MSISDN into positional list (POSIX sh has no arrays).
+    _i=0
+    _l_idx=""; _l_val=""
     while IFS= read -r _line; do
         [ -n "$_line" ] || continue
         _msisdn=$(printf '%s' "$_line" | cut -f1)
+        _msisdn=$(_hyfe_normalize_msisdn "$_msisdn")
         [ -n "$_msisdn" ] || continue
-        # Format MSISDN groups for readability: "081916556671" -> "0819-1655-6671"
-        _fmt=$(printf '%s' "$_msisdn" | \
-            sed 's/^\(....\)\(....\)\(.*\)$/\1-\2-\3/')
-        box_menu_item "$_i" "$_fmt" "$BOLD$BGREEN"
+        _fmt=$(_hyfe_format_msisdn "$_msisdn")
         _i=$((_i + 1))
+        if [ -z "$_l_idx" ]; then
+            # Buffer left cell; flush when we get the right cell.
+            _l_idx="$_i"
+            _l_val="$_fmt"
+        else
+            mbox_row "$_l_idx" "$_l_val" "$_i" "$_fmt" "$BCYAN"
+            _l_idx=""; _l_val=""
+        fi
     done <"$_tmp"
-    box_bottom
+    # Flush trailing odd cell (right cell empty).
+    if [ -n "$_l_idx" ]; then
+        mbox_row "$_l_idx" "$_l_val" "" "" "$BCYAN"
+    fi
+    mbox_bottom "$BCYAN"
     rm -f "$_tmp" 2>/dev/null
     return 0
+}
+
+# Normalize an MSISDN to canonical leading-0 + 11-12 digit form. Strips
+# the country prefix 62 if present, prepends 0 when missing.
+#   "8123..."   -> "08123..."
+#   "62812..."  -> "0812..."
+#   "0812..."   -> "0812..."
+_hyfe_normalize_msisdn() {
+    _m="$1"
+    case "$_m" in
+        62*) _m="0${_m#62}" ;;
+        0*) ;;
+        8*) _m="0$_m" ;;
+        *) ;;
+    esac
+    printf '%s' "$_m"
+}
+
+# Format a normalized MSISDN as 0xxx-xxxx-xxxx (or 0xxx-xxxx-xxx for 11-digit).
+# Uses 4-4-rest grouping for symmetry; 11/12/13 digit numbers all align cleanly.
+_hyfe_format_msisdn() {
+    _m="$1"
+    _l=${#_m}
+    # Always group as first-4 / next-4 / rest. For 12-digit: 4-4-4. For
+    # 11-digit: 4-4-3. For 13-digit: 4-4-5. Padded width below in mbox_row
+    # handles the variable rest-length.
+    if [ "$_l" -le 8 ]; then
+        printf '%s' "$_m"
+        return
+    fi
+    _a=$(printf '%s' "$_m" | cut -c 1-4)
+    _b=$(printf '%s' "$_m" | cut -c 5-8)
+    _c=$(printf '%s' "$_m" | cut -c 9-)
+    printf '%s-%s-%s' "$_a" "$_b" "$_c"
 }
 
 # ============================================================================
@@ -1243,7 +1533,12 @@ _hyfe_count_eid_slots() {
 }
 
 _hyfe_count_email_slots() {
-    _config_email_count "${CONFIG_FILE:-$(config_default_path)}"
+    _f="${CONFIG_FILE:-$(config_default_path)}"
+    if [ ! -f "$_f" ]; then
+        printf '0'
+        return 0
+    fi
+    _config_email_count "$_f"
 }
 
 # Edit last N digits of a saved EID (slot index). N must be 3 or 4.
@@ -1301,40 +1596,43 @@ hyfe_quick_setup() {
     _path="${CONFIG_FILE:-$(config_default_path)}"
     config_ensure "$_path"
 
-    # ---- Step 1: pilih email default ----
-    section_header "Email default" "$BCYAN"
+    # ---- Step 1: pilih email default (SEC_LIME) ----
+    _hyfe_section "Email default" "$SEC_LIME"
     _ec=$(_hyfe_count_email_slots)
     if [ "$_ec" -lt 1 ]; then
         _hyfe_fail "Belum ada email tersimpan. Jalankan opsi 8 (Edit email) dulu."
         return 1
     fi
+    lbox_top "$SEC_LIME"
+    lbox_text "Pilih slot email" "$BOLD$WHITE" "$SEC_LIME"
+    lbox_sep "$SEC_LIME"
     _i=1
     while [ "$_i" -le "$_ec" ]; do
         _e=$(eval "printf '%s' \"\${HYFE_EMAIL_$_i:-}\"")
-        printf '  %b%d)%b %s %b(slot %d)%b\n' \
-            "$BOLD$BYELLOW" "$_i" "$RESET" "$_e" "$DIM" "$_i" "$RESET"
+        lbox_kv "$_i)" "$_e (slot $_i)" "$BOLD$XL_GOLD_LIGHT" "$WHITE" "$SEC_LIME"
         _i=$((_i + 1))
     done
+    lbox_bottom "$SEC_LIME"
     _q_email_slot=""
     while :; do
-        printf '\n  %bPilih slot email [1-%d]:%b ' \
-            "$BOLD$BCYAN" "$_ec" "$RESET"
+        printf '  %b➤  Pilih slot email [1-%d]:%b ' \
+            "$BOLD$SEC_LIME" "$_ec" "$RESET"
         if ! IFS= read -r _ans; then
-            printf '\n  %b! Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan.%b\n' \
-                "$BRED" "$RESET"
+            _hyfe_fail "Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan."
             return 1
         fi
         case "$_ans" in
-            ''|*[!0-9]*) continue ;;
+            ''|*[!0-9]*) _hyfe_warn "Pilih angka 1-$_ec"; continue ;;
         esac
         if [ "$_ans" -ge 1 ] && [ "$_ans" -le "$_ec" ]; then
             _q_email_slot="$_ans"
             break
         fi
+        _hyfe_warn "Slot di luar rentang. Pilih 1-$_ec"
     done
 
-    # ---- Step 2: pilih EID default (with edit-tail option) ----
-    section_header "EID default" "$BCYAN"
+    # ---- Step 2: pilih EID default (SEC_LAVENDER, with edit-tail option) ----
+    _hyfe_section "EID default" "$SEC_LAVENDER"
     _ec_eid=$(_hyfe_count_eid_slots)
     if [ "$_ec_eid" -lt 1 ]; then
         _hyfe_fail "Belum ada EID tersimpan. Jalankan opsi 5 (Setup config) dulu."
@@ -1346,27 +1644,28 @@ hyfe_quick_setup() {
     while [ -z "$_q_eid" ]; do
         # Redraw the EID menu every iteration so the user always sees the
         # available options (e.g. after declining to save an edited EID).
+        lbox_top "$SEC_LAVENDER"
+        lbox_text "Pilih EID" "$BOLD$WHITE" "$SEC_LAVENDER"
+        lbox_sep "$SEC_LAVENDER"
         _i=1
         while [ "$_i" -le "$_ec_eid" ]; do
             _v=$(eval "printf '%s' \"\${HYFE_EID_$_i:-}\"")
-            printf '  %b%d)%b %s %b(slot %d)%b\n' \
-                "$BOLD$BYELLOW" "$_i" "$RESET" \
-                "$(_hyfe_eid_mask "$_v")" \
-                "$DIM" "$_i" "$RESET"
+            lbox_kv "$_i)" "$(_hyfe_eid_mask "$_v") (slot $_i)" \
+                "$BOLD$XL_GOLD_LIGHT" "$WHITE" "$SEC_LAVENDER"
             _i=$((_i + 1))
         done
-        printf '  %b%d)%b edit 3 digit terakhir slot tertentu\n' \
-            "$BOLD$BYELLOW" "$_opt3" "$RESET"
-        printf '  %b%d)%b edit 4 digit terakhir slot tertentu\n' \
-            "$BOLD$BYELLOW" "$_opt4" "$RESET"
-        printf '\n  %bPilih:%b ' "$BOLD$BCYAN" "$RESET"
+        lbox_kv "$_opt3)" "edit 3 digit terakhir slot tertentu" \
+            "$BOLD$XL_GOLD_LIGHT" "$DIM$WHITE" "$SEC_LAVENDER"
+        lbox_kv "$_opt4)" "edit 4 digit terakhir slot tertentu" \
+            "$BOLD$XL_GOLD_LIGHT" "$DIM$WHITE" "$SEC_LAVENDER"
+        lbox_bottom "$SEC_LAVENDER"
+        printf '  %b➤  Pilih:%b ' "$BOLD$SEC_LAVENDER" "$RESET"
         if ! IFS= read -r _ans; then
-            printf '\n  %b! Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan.%b\n' \
-                "$BRED" "$RESET"
+            _hyfe_fail "Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan."
             return 1
         fi
         case "$_ans" in
-            ''|*[!0-9]*) printf '\n'; continue ;;
+            ''|*[!0-9]*) _hyfe_warn "Pilih angka 1-$_opt4"; continue ;;
         esac
         if [ "$_ans" -ge 1 ] && [ "$_ans" -le "$_ec_eid" ]; then
             _q_eid=$(eval "printf '%s' \"\${HYFE_EID_$_ans:-}\"")
@@ -1376,11 +1675,10 @@ hyfe_quick_setup() {
             if [ "$_ans" -eq "$_opt3" ]; then _ndig=3; else _ndig=4; fi
             _slot=""
             while [ -z "$_slot" ]; do
-                printf '  %bEdit dari slot mana? [1-%d]:%b ' \
-                    "$BOLD$BCYAN" "$_ec_eid" "$RESET"
+                printf '  %b➤  Edit dari slot mana? [1-%d]:%b ' \
+                    "$BOLD$SEC_LAVENDER" "$_ec_eid" "$RESET"
                 if ! IFS= read -r _sa; then
-                    printf '\n  %b! Input dibatalkan (EOF).%b\n' \
-                        "$BRED" "$RESET"
+                    _hyfe_fail "Input dibatalkan (EOF)."
                     return 1
                 fi
                 case "$_sa" in ''|*[!0-9]*) continue ;; esac
@@ -1389,13 +1687,12 @@ hyfe_quick_setup() {
                 fi
             done
             _new=$(_hyfe_edit_eid_tail "$_slot" "$_ndig") || { printf '\n'; continue; }
-            printf '\n  %bEID hasil edit:%b %s\n' \
-                "$BOLD$BGREEN" "$RESET" "$(_hyfe_eid_mask "$_new")"
-            printf '  %bSimpan ke HYFE_QUICK_EID? [Y/n]:%b ' \
-                "$BOLD$BCYAN" "$RESET"
+            _hyfe_msg_box "$BGREEN" "EID Hasil Edit" \
+                "$(_hyfe_eid_mask "$_new")"
+            printf '  %b➤  Simpan ke HYFE_QUICK_EID? [Y/n]:%b ' \
+                "$BOLD$BGREEN" "$RESET"
             if ! IFS= read -r _yn; then
-                printf '\n  %b! Input dibatalkan (EOF).%b\n' \
-                    "$BRED" "$RESET"
+                _hyfe_fail "Input dibatalkan (EOF)."
                 return 1
             fi
             case "$_yn" in
@@ -1404,23 +1701,25 @@ hyfe_quick_setup() {
             esac
             continue
         fi
-        printf '\n'
+        _hyfe_warn "Pilihan tidak dikenal: $_ans"
     done
 
-    # ---- Step 3: captcha mode ----
-    section_header "Mode captcha" "$BCYAN"
-    printf '  %b1)%b manual\n  %b2)%b nextcaptcha\n  %b3)%b 2captcha\n  %b4)%b anticaptcha\n  %b5)%b capsolver\n' \
-        "$BOLD$BYELLOW" "$RESET" \
-        "$BOLD$BYELLOW" "$RESET" \
-        "$BOLD$BYELLOW" "$RESET" \
-        "$BOLD$BYELLOW" "$RESET" \
-        "$BOLD$BYELLOW" "$RESET"
+    # ---- Step 3: captcha mode (SEC_PINK) ----
+    _hyfe_section "Mode captcha" "$SEC_PINK"
+    lbox_top "$SEC_PINK"
+    lbox_text "Pilih provider captcha" "$BOLD$WHITE" "$SEC_PINK"
+    lbox_sep "$SEC_PINK"
+    lbox_kv "1)" "manual"      "$BOLD$XL_GOLD_LIGHT" "$WHITE" "$SEC_PINK"
+    lbox_kv "2)" "nextcaptcha" "$BOLD$XL_GOLD_LIGHT" "$WHITE" "$SEC_PINK"
+    lbox_kv "3)" "2captcha"    "$BOLD$XL_GOLD_LIGHT" "$WHITE" "$SEC_PINK"
+    lbox_kv "4)" "anticaptcha" "$BOLD$XL_GOLD_LIGHT" "$WHITE" "$SEC_PINK"
+    lbox_kv "5)" "capsolver"   "$BOLD$XL_GOLD_LIGHT" "$WHITE" "$SEC_PINK"
+    lbox_bottom "$SEC_PINK"
     _q_cap=""
     while :; do
-        printf '\n  %bPilih [1-5]:%b ' "$BOLD$BCYAN" "$RESET"
+        printf '  %b➤  Pilih [1-5]:%b ' "$BOLD$SEC_PINK" "$RESET"
         if ! IFS= read -r _ans; then
-            printf '\n  %b! Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan.%b\n' \
-                "$BRED" "$RESET"
+            _hyfe_fail "Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan."
             return 1
         fi
         case "$_ans" in
@@ -1429,51 +1728,56 @@ hyfe_quick_setup() {
             3) _q_cap="2captcha"; break ;;
             4) _q_cap="anticaptcha"; break ;;
             5) _q_cap="capsolver"; break ;;
+            *) _hyfe_warn "Pilih angka 1-5" ;;
         esac
     done
 
-    # ---- Step 4: OTP mode ----
-    section_header "Mode OTP" "$BCYAN"
-    printf '  %b1)%b imap (otomatis baca dari mailbox)\n  %b2)%b manual (paste OTP saat diminta)\n' \
-        "$BOLD$BYELLOW" "$RESET" \
-        "$BOLD$BYELLOW" "$RESET"
+    # ---- Step 4: OTP mode (SEC_SKY) ----
+    _hyfe_section "Mode OTP" "$SEC_SKY"
+    lbox_top "$SEC_SKY"
+    lbox_text "Pilih cara baca OTP" "$BOLD$WHITE" "$SEC_SKY"
+    lbox_sep "$SEC_SKY"
+    lbox_kv "1)" "imap (otomatis baca dari mailbox)" \
+        "$BOLD$XL_GOLD_LIGHT" "$WHITE" "$SEC_SKY"
+    lbox_kv "2)" "manual (paste OTP saat diminta)" \
+        "$BOLD$XL_GOLD_LIGHT" "$WHITE" "$SEC_SKY"
+    lbox_bottom "$SEC_SKY"
     _q_otp=""
     while :; do
-        printf '\n  %bPilih [1-2]:%b ' "$BOLD$BCYAN" "$RESET"
+        printf '  %b➤  Pilih [1-2]:%b ' "$BOLD$SEC_SKY" "$RESET"
         if ! IFS= read -r _ans; then
-            printf '\n  %b! Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan.%b\n' \
-                "$BRED" "$RESET"
+            _hyfe_fail "Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan."
             return 1
         fi
         case "$_ans" in
             1) _q_otp="imap"; break ;;
             2) _q_otp="manual"; break ;;
+            *) _hyfe_warn "Pilih 1 atau 2" ;;
         esac
     done
 
-    # ---- Step 5: pattern ----
-    section_header "Pola digit MSISDN (opsional)" "$BCYAN"
+    # ---- Step 5: pattern (SEC_TEAL) ----
+    _hyfe_section "Pola digit MSISDN" "$SEC_TEAL"
+    lbox_top "$SEC_TEAL"
+    lbox_text "Pola Digit (opsional)" "$BOLD$WHITE" "$SEC_TEAL"
+    lbox_sep "$SEC_TEAL"
+    lbox_item "Kosongkan untuk random page." "$DIM$WHITE" "$SEC_TEAL"
+    lbox_item "Atau ketik 1-5 digit (mis. 1122)." "$DIM$WHITE" "$SEC_TEAL"
+    lbox_bottom "$SEC_TEAL"
     _q_pat=""
     while :; do
-        printf '  %bKosongkan untuk random, atau ketik digit 1-5 (mis. 1122):%b ' \
-            "$BOLD$BCYAN" "$RESET"
+        printf '  %b➤  Pola digit:%b ' "$BOLD$SEC_TEAL" "$RESET"
         if ! IFS= read -r _q_pat; then
-            printf '\n  %b! Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan.%b\n' \
-                "$BRED" "$RESET"
+            _hyfe_fail "Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan."
             return 1
         fi
         _q_pat=$(trim "$_q_pat" 2>/dev/null || printf '%s' "$_q_pat")
         case "$_q_pat" in
             "") break ;;
-            *[!0-9]*)
-                printf '  %b! Pola harus digit angka saja.%b\n' \
-                    "$BRED" "$RESET"
-                continue
-                ;;
+            *[!0-9]*) _hyfe_warn "Pola harus digit angka saja"; continue ;;
             *)
                 if [ "${#_q_pat}" -gt 5 ]; then
-                    printf '  %b! Maksimal 5 digit (input: %d).%b\n' \
-                        "$BRED" "${#_q_pat}" "$RESET"
+                    _hyfe_warn "Maksimal 5 digit (input: ${#_q_pat})"
                     continue
                 fi
                 break
@@ -1481,22 +1785,27 @@ hyfe_quick_setup() {
         esac
     done
 
-    # ---- Step 6: auto-pick MSISDN ----
-    section_header "Auto-pick MSISDN?" "$BCYAN"
-    printf '  %b1)%b ya (truly unattended - ambil MSISDN pertama)\n  %b2)%b tidak (tetap pilih dari list)\n' \
-        "$BOLD$BYELLOW" "$RESET" \
-        "$BOLD$BYELLOW" "$RESET"
+    # ---- Step 6: auto-pick MSISDN (SEC_PURPLE) ----
+    _hyfe_section "Auto-pick MSISDN?" "$SEC_PURPLE"
+    lbox_top "$SEC_PURPLE"
+    lbox_text "Pilih perilaku auto-pick" "$BOLD$WHITE" "$SEC_PURPLE"
+    lbox_sep "$SEC_PURPLE"
+    lbox_kv "1)" "ya (truly unattended)" \
+        "$BOLD$XL_GOLD_LIGHT" "$WHITE" "$SEC_PURPLE"
+    lbox_kv "2)" "tidak (tetap pilih dari list)" \
+        "$BOLD$XL_GOLD_LIGHT" "$WHITE" "$SEC_PURPLE"
+    lbox_bottom "$SEC_PURPLE"
     _q_auto=""
     while :; do
-        printf '\n  %bPilih [1-2]:%b ' "$BOLD$BCYAN" "$RESET"
+        printf '  %b➤  Pilih [1-2]:%b ' "$BOLD$SEC_PURPLE" "$RESET"
         if ! IFS= read -r _ans; then
-            printf '\n  %b! Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan.%b\n' \
-                "$BRED" "$RESET"
+            _hyfe_fail "Input dibatalkan (EOF). Setup Klaim Cepat dibatalkan."
             return 1
         fi
         case "$_ans" in
             1) _q_auto="1"; break ;;
             2) _q_auto="0"; break ;;
+            *) _hyfe_warn "Pilih 1 atau 2" ;;
         esac
     done
 
@@ -1543,9 +1852,9 @@ hyfe_quick_claim() {
     [ -n "${HYFE_QUICK_OTP_MODE:-}" ]     || _miss="$_miss HYFE_QUICK_OTP_MODE"
     if [ -n "$_miss" ]; then
         _hyfe_fail "Setup Klaim Cepat belum lengkap"
-        printf '\n  %bMissing:%b%s\n' "$BRED" "$RESET" "$_miss"
-        printf '  %bJalankan opsi 3 (Setup Klaim Cepat) dulu.%b\n' \
-            "$DIM" "$RESET"
+        _hyfe_msg_box "$BRED" "Field belum di-set" \
+            "Missing:$_miss" \
+            "Jalankan opsi 3 (Setup Klaim Cepat) dulu."
         return 1
     fi
 
@@ -1594,8 +1903,8 @@ hyfe_quick_claim() {
         fi
         if [ -z "${HYFE_CAPTCHA_KEY:-}" ]; then
             _hyfe_fail "API key captcha untuk mode '$HYFE_CAPTCHA_MODE' kosong"
-            printf '\n  %bJalankan opsi 6 (Edit captcha config) untuk set key.%b\n' \
-                "$DIM" "$RESET"
+            _hyfe_msg_box "$BRED" "Hint" \
+                "Jalankan opsi 6 (Edit captcha config) untuk set key."
             return 1
         fi
     fi
@@ -1603,8 +1912,8 @@ hyfe_quick_claim() {
     if [ "$HYFE_OTP_MODE" = "imap" ]; then
         if [ -z "${HYFE_IMAP_USER:-}" ] || [ -z "${HYFE_IMAP_PASS:-}" ]; then
             _hyfe_fail "IMAP user/password belum di-set buat slot $_slot"
-            printf '\n  %bJalankan opsi 8 (Edit email config) untuk set App Password.%b\n' \
-                "$DIM" "$RESET"
+            _hyfe_msg_box "$BRED" "Hint" \
+                "Jalankan opsi 8 (Edit email config) untuk set App Password."
             return 1
         fi
     fi
@@ -1650,22 +1959,30 @@ hyfe_menu() {
     while :; do
         clear_screen
         _hyfe_banner
-        printf '\n'
-        printf '  %b── Klaim ──────────────────────────────%b\n' "$DIM$BCYAN" "$RESET"
-        printf '  %b1)%b Klaim sekarang (interaktif penuh)\n' "$BOLD$BYELLOW" "$RESET"
-        printf '  %b2)%b Lihat daftar MSISDN\n' "$BOLD$BYELLOW" "$RESET"
-        printf '  %b── Klaim Cepat ────────────────────────%b\n' "$DIM$BCYAN" "$RESET"
-        printf '  %b3)%b Setup Klaim Cepat\n' "$BOLD$BYELLOW" "$RESET"
-        printf '  %b4)%b Klaim Cepat (pakai setup di atas)\n' "$BOLD$BYELLOW" "$RESET"
-        printf '  %b── Config ─────────────────────────────%b\n' "$DIM$BCYAN" "$RESET"
-        printf '  %b5)%b Setup config (wizard awal full)\n' "$BOLD$BYELLOW" "$RESET"
-        printf '  %b6)%b Edit captcha config\n' "$BOLD$BYELLOW" "$RESET"
-        printf '  %b7)%b Edit IMAP config\n' "$BOLD$BYELLOW" "$RESET"
-        printf '  %b8)%b Edit email config (multi-akun)\n' "$BOLD$BYELLOW" "$RESET"
-        printf '  %b9)%b Lihat config aktif\n' "$BOLD$BYELLOW" "$RESET"
-        printf '  %b───────────────────────────────────────%b\n' "$DIM$BCYAN" "$RESET"
-        printf '  %b0)%b Kembali ke main menu\n\n' "$BOLD$BRED" "$RESET"
-        printf '  %bPilih opsi:%b ' "$BOLD$BCYAN" "$RESET"
+        # ─── Menu box (L-mixed gold border + section group separators) ───
+        lbox_top "$XL_GOLD"
+        # Group 1: Klaim
+        lbox_text "── Klaim ──" "$BOLD$XL_GOLD_LIGHT" "$XL_GOLD"
+        _hyfe_menu_item "1" "Klaim sekarang (interaktif penuh)" "$XL_GOLD"
+        _hyfe_menu_item "2" "Lihat daftar MSISDN"               "$XL_GOLD"
+        lbox_sep "$XL_GOLD"
+        # Group 2: Klaim Cepat
+        lbox_text "── Klaim Cepat ──" "$BOLD$SEC_TEAL" "$XL_GOLD"
+        _hyfe_menu_item "3" "Setup Klaim Cepat"                 "$XL_GOLD" "$SEC_TEAL"
+        _hyfe_menu_item "4" "Klaim Cepat (pakai setup di atas)" "$XL_GOLD" "$SEC_TEAL"
+        lbox_sep "$XL_GOLD"
+        # Group 3: Config
+        lbox_text "── Config ──" "$BOLD$SEC_LAVENDER" "$XL_GOLD"
+        _hyfe_menu_item "5" "Setup config (wizard awal full)"    "$XL_GOLD" "$SEC_LAVENDER"
+        _hyfe_menu_item "6" "Edit captcha config"                "$XL_GOLD" "$SEC_PINK"
+        _hyfe_menu_item "7" "Edit IMAP config"                   "$XL_GOLD" "$SEC_SKY"
+        _hyfe_menu_item "8" "Edit email config (multi-akun)"     "$XL_GOLD" "$SEC_LIME"
+        _hyfe_menu_item "9" "Lihat config aktif"                 "$XL_GOLD" "$WHITE"
+        lbox_sep "$XL_GOLD"
+        _hyfe_menu_item "0" "Kembali ke main menu" "$XL_GOLD" "$DIM$BRED"
+        lbox_bottom "$XL_GOLD"
+
+        printf '\n  %b➤  Pilih opsi:%b ' "$BOLD$XL_GOLD" "$RESET"
         if ! IFS= read -r _opt; then
             # EOF (Ctrl-D) - return to esim main menu instead of spinning.
             printf '\n'
@@ -1682,7 +1999,21 @@ hyfe_menu() {
             8) hyfe_edit_email_config   ; pause ;;
             9) hyfe_show_config         ; pause ;;
             0) return 0 ;;
-            *) ;;
+            *) _hyfe_warn "Pilihan tidak dikenal: $_opt"; pause ;;
         esac
     done
+}
+
+# Render a single menu item row inside the gold L-box: ║  N  Label  ║
+# Args: NUM LABEL [BORDER_COLOR] [LABEL_COLOR]
+_hyfe_menu_item() {
+    _n="$1"; _l="$2"
+    _bc="${3:-$XL_GOLD}"
+    _lc="${4:-$WHITE}"
+    _l="$(trim_text "$_l" 56)"
+    printf '%b║%b  %b%s)%b  %b%-56s%b  %b║%b\n' \
+        "$_bc" "$RESET" \
+        "$BOLD$XL_GOLD_LIGHT" "$_n" "$RESET" \
+        "$_lc" "$_l" "$RESET" \
+        "$_bc" "$RESET"
 }
